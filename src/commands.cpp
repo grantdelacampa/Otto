@@ -111,6 +111,22 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "resetbest")) { launchResetBest(); reply(src, "best cleared"); }
   } else if (arg(line, "summary")) {
     if (!tripShowSummary()) reply(src, "no drive yet (needs 3+ min)");
+  } else if (arg(line, "perf")) {                // debug: loop rate + touch read timing since the last `perf`
+    extern uint32_t g_perfLoops, g_perfLoopMaxUs, g_tpReads, g_tpReadUs, g_tpReadMaxUs, g_tpGapMaxMs;
+    extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
+    static uint32_t s_since = 0;
+    uint32_t now = millis(), span = s_since ? now - s_since : now;
+    char b[200];
+    snprintf(b, sizeof(b), "perf: %.1f s, loop %.0f/s (longest %.1f ms), touch reads %u (avg %.2f ms, longest %.2f ms), longest gap while touched %u ms",
+             span / 1000.0f, g_perfLoops * 1000.0f / (span ? span : 1), g_perfLoopMaxUs / 1000.0f, (unsigned)g_tpReads,
+             g_tpReads ? g_tpReadUs / 1000.0f / g_tpReads : 0.0f, g_tpReadMaxUs / 1000.0f, (unsigned)g_tpGapMaxMs);
+    reply(src, b);
+    snprintf(b, sizeof(b), "perf: %u frames, draw %.1f ms, push %.1f ms per frame", (unsigned)g_perfFrames,
+             g_perfFrames ? g_perfDrawUs / 1000.0f / g_perfFrames : 0.0f, g_perfFrames ? g_perfPushUs / 1000.0f / g_perfFrames : 0.0f);
+    reply(src, b);
+    g_perfFrames = g_perfDrawUs = g_perfPushUs = 0;
+    g_perfLoops = g_perfLoopMaxUs = g_tpReads = g_tpReadUs = g_tpReadMaxUs = g_tpGapMaxMs = 0;
+    s_since = now;
   } else if (!strncasecmp(line, "touch raw", 9)) {   // debug: every SPD2010 status read: touch raw [secs]
     float secs = line[9] ? atof(line + 9) : 10;
     uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
@@ -202,15 +218,12 @@ void handleCommand(const char* raw, uint16_t src) {
       delay(50);
     }
     motionInit();                                // back to normal mode
-  } else if ((a = arg(line, "listen"))) {        // voice: listen [on|off|now|thresh 0.x|wakethresh 0.x|wake otto|esp]
+  } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|thresh 0.x]  (bare = status)
     char b[160];
     if (!strcasecmp(a, "on") || !strcasecmp(a, "off")) {
       g_set.voiceOn = !strcasecmp(a, "on"); settingsSave(); voiceSetEnabled(g_set.voiceOn);
     } else if (!strcasecmp(a, "now")) voiceListenNow();
     else if (!strncasecmp(a, "thresh", 6)) voiceSetThreshold(atof(a + 6));
-    else if (!strncasecmp(a, "wakethresh", 10)) voiceSetWakeThreshold(atof(a + 10));
-    else if (!strcasecmp(a, "wake otto")) voiceSetWake(false);
-    else if (!strcasecmp(a, "wake esp")) voiceSetWake(true);
     voiceStatus(b, sizeof(b));
     reply(src, b);
   } else if ((a = arg(line, "show"))) {          // car show mode: show on|off

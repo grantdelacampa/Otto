@@ -21,6 +21,11 @@ static bool s_ok = false;
 static uint16_t s_fw = 0;
 static volatile bool s_intFlag = false;
 
+struct TouchSample { uint32_t t; int8_t n; int16_t x, y; };   // n: 1 = finger at x,y, 0 = lifted
+static QueueHandle_t s_q = nullptr;
+static volatile bool s_pause = false, s_qOverflow = false;
+static void readerTask(void*);
+
 static void IRAM_ATTR onTouchInt() { s_intFlag = true; }
 
 static bool tpWrite(const uint8_t* d, size_t n) {
@@ -41,6 +46,8 @@ static bool tpRead(uint8_t r0, uint8_t r1, uint8_t* buf, size_t n) {
 
 void touchPrepareSleep() {
   // Clear any pending report so INT is idle (high) when we decide whether touch may wake us.
+  s_pause = true;
+  delay(25);
   if (s_ok) tpWrite(CMD_CLEAR_INT, 4);
 }
 
@@ -58,6 +65,8 @@ static void mapPoint(int16_t& x, int16_t& y) {
 
 // Returns number of points (0 = no finger), or -1 if nothing new was read.
 static bool s_rawDbg = false;   // `touch raw`: print every status read
+// `perf`: how long reads take and how far apart they are while a finger is down
+uint32_t g_tpReads = 0, g_tpReadUs = 0, g_tpReadMaxUs = 0, g_tpGapMaxMs = 0;
 
 static int readFrame(TouchPoint* pts) {
   uint8_t st[4];
@@ -135,11 +144,52 @@ bool touchInit() {
   uint8_t fw[18];
   if (tpRead(0x26, 0x00, fw, 18)) s_fw = fw[4] | (fw[5] << 8);
   attachInterrupt(digitalPinToInterrupt(PIN_TP_INT), onTouchInt, FALLING);
+  s_q = xQueueCreate(48, sizeof(TouchSample));
+  // core 1 next to the main loop, just above it: a read is ~1 ms every 10 ms
+  xTaskCreatePinnedToCore(readerTask, "touch", 3072, nullptr, 2, nullptr, 1);
   Serial.printf("touch: SPD2010 ok (fw 0x%04X)\n", s_fw);
   return true;
 }
 
+// ------------------------------------------------------------ reader task --
+// The main loop only comes round every ~100 ms (a full 412x412 frame), and the SPD2010 shows a lift
+// only as an idle status on the next read (no INT pulse): between two quick taps that's often
+// < 100 ms, so taps merged into one long touch. This task reads every 10 ms instead and queues
+// time-stamped samples for the gesture code (touchUpdate, main loop).
+static void readerTask(void*) {
+  bool down = false;
+  for (;;) {
+    if (!s_pause && s_ok) {
+      bool fresh = s_intFlag || digitalRead(PIN_TP_INT) == LOW;
+      if (fresh || down) {                       // finger down: keep polling to catch the lift
+        s_intFlag = false;
+        TouchPoint pt[MAX_PTS];
+        uint32_t t0 = micros();
+        int n = readFrame(pt);
+        uint32_t us = micros() - t0;
+        g_tpReads++; g_tpReadUs += us; if (us > g_tpReadMaxUs) g_tpReadMaxUs = us;
+        uint32_t now = millis();
+        static uint32_t s_prev = 0;
+        if (down && s_prev && now - s_prev > g_tpGapMaxMs) g_tpGapMaxMs = now - s_prev;
+        s_prev = now;
+        if (n > 0 || (n == 0 && down)) {
+          TouchSample smp = {now, (int8_t)(n > 0 ? 1 : 0), pt[0].x, pt[0].y};
+          if (n == 0) { smp.x = smp.y = 0; }
+          if (xQueueSend(s_q, &smp, 0) != pdTRUE) s_qOverflow = true;
+          down = n > 0;
+        }
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+static void debugPause() {       // debug commands read the chip themselves: stop the task meanwhile
+  if (!s_pause) { s_pause = true; delay(25); }
+}
+
 int touchRawRead(TouchPoint* pts) {   // poll regardless of INT, with the status printed
+  debugPause();
   s_rawDbg = true;
   int n = readFrame(pts);
   s_rawDbg = false;
@@ -147,6 +197,7 @@ int touchRawRead(TouchPoint* pts) {   // poll regardless of INT, with the status
 }
 
 int touchDebugRead(TouchPoint* pts, int maxPts) {
+  debugPause();
   s_intFlag = false;              // poll every time: a lift doesn't pulse INT
   TouchPoint p[MAX_PTS];
   int n = readFrame(p);
@@ -301,25 +352,23 @@ static void onRelease(uint32_t now) {
   g = Gesture();
 }
 
+static void onSample(uint32_t now, int n, const TouchPoint* p);
+
 void touchUpdate(uint32_t now) {
   if (!s_ok) return;
-  if (now - s_lastPoll < 15) return;
-  // Read when the chip pulses INT; while a finger is down also poll, so a missed
-  // pulse can't leave us stuck.
-  bool fresh = s_intFlag || digitalRead(PIN_TP_INT) == LOW;
-  if (!fresh && !(g.active && now - s_lastPoll > 40)) {
-    if (g.active && now - g.last > TOUCH_RELEASE_MS) onRelease(now);   // reports stopped: finger lifted
-    return;
+  s_pause = false;                 // a debug command that paused the reader has finished
+  // Everything the reader task saw since last time, each with the time it was read
+  TouchSample smp;
+  while (xQueueReceive(s_q, &smp, 0) == pdTRUE) {
+    TouchPoint pt = {smp.x, smp.y};
+    onSample(smp.t, smp.n, &pt);
   }
-  s_intFlag = false;
-  s_lastPoll = now;
+  if (s_qOverflow) { s_qOverflow = false; Serial.println("touch: sample queue overflowed"); }
+  // safety net: no report for a while with a finger down = lifted
+  if (g.active && (int32_t)(now - g.last) > (int32_t)TOUCH_RELEASE_MS) onRelease(now);
+}
 
-  TouchPoint p[MAX_PTS];
-  int n = readFrame(p);
-  if (n < 0) {
-    if (g.active && now - g.last > TOUCH_RELEASE_MS) onRelease(now);
-    return;
-  }
+static void onSample(uint32_t now, int n, const TouchPoint* p) {
   if (n == 0) {
     if (g.active) onRelease(now);
     return;

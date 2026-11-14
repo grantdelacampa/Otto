@@ -23,6 +23,13 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   - Verified on the board (Nov 14, 2026): display, touch (taps, hold/pet, crank drag), IMU, RTC,
     mic, voice models, battery ADC (~4.14 V on USB), all six designed faces.
   - SPD2010 wants window edges on multiples of 4: `display.cpp` pushes full-width 32-row stripes.
+  - **Touch runs in its own task** (`readerTask` in touch.cpp, core 1, prio 2, every 10 ms) feeding
+    time-stamped samples to the gesture code. The SPD2010 shows a lift only as an idle status read
+    (`00 08`, no INT pulse), and the main loop is ~60-100 ms per frame, so fast taps merged into one
+    long touch (petting) when it was read from the loop. `touch raw [secs]` prints every status read.
+  - `perf` prints loop rate, draw / push time per frame and touch read timing. Bench (Nov 15 2026):
+    voice off ~17 fps (draw 45 ms, push 12 ms at 80 MHz), "Hi ESP" ~12 fps. Glow strokes use plain
+    triangles (`glowLine`): smooth wide lines on the PSRAM canvas cost ~37 ms a frame.
 - **Native USB gotchas** (same as Rotor): opening the port can reset the board unless DTR/RTS are
   held low; Otto sleeps after `sleepMin` (2) minutes still and the COM port then shows "device not
   functioning" — recover with BOOT held + replug (download mode). A crash loop also blocks uploads
@@ -69,10 +76,12 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   Never clears codes (mode 04) on purpose. Settings went to SETTINGS_VERSION 2 for the OBD keys.
 - Telemetry dropped `cab`/`rh` (no SHTC3 on this board) for `obd`/`rpm`/`cool`; keep it under ~240 chars
   (BLE notify size).
-- **"Hi Otto"** (Nov 14, 2026): no free WakeNet model for it (custom = paid Espressif job), so in the
-  default mode the MultiNet command model runs continuously with "hi/hey/hello/okay otto" as
-  VC_WAKE; that arms it for 7 s (voice.cpp). `listen wake esp` switches back to WakeNet "Hi ESP"
-  (NVS `wakeEsp`, outside Settings). Phonemes from ESP_SR tools/gen_sr_commands.py.
+- **Wake word stays "Hi ESP"** (owner, Nov 15 2026). "Hi Otto" was tried: Espressif has no free model
+  for it, so the MultiNet command model ran always-on with "hi otto" as a command. It woke on its own
+  in a quiet room (~-50 dBFS) at the same confidence as real ones (0.3-0.5) and halved the frame rate,
+  even with a VAD gate; removed. A real one would be a paid custom WakeNet from Espressif.
+- ESP-SR detect task runs at **priority 1** on core 1 (= loopTask) in lib/ESP_SR: at 5 it pushed the
+  main loop aside. Core 0 can't take it (feed task + detect starve IDLE0 -> task watchdog reboot).
 - Voice clips: German, generated with `tools/make_clips.ps1` via `tools/tts.ps1` (any WinRT voice,
   `-Lang de-DE`). **No German voice is installed on the owner's PC yet** (only en-US + ja-JP), so
   `data/clips` is empty and every clip plays the chirp for now.

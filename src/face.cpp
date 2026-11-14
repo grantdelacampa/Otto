@@ -215,6 +215,19 @@ static void drawCylinder() {
 
 static uint16_t s_body, s_bodyGlow, s_eye, s_eyeGlow;
 
+// Glow strokes: a faint halo needs no anti-aliasing, and drawWideLine's smooth edges on the PSRAM
+// canvas cost ~37 ms of an 80 ms frame (bench, Nov 15 2026). Plain triangles + round caps instead.
+static void glowLine(float x0, float y0, float x1, float y1, float w, uint16_t c) {
+  float ax = FX(x0), ay = FY(y0), bx = FX(x1), by = FY(y1), r = FW(w) * 0.5f;
+  float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy);
+  if (len > 0.5f) {
+    float nx = -dy / len * r, ny = dx / len * r;
+    canvas.fillTriangle(ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, c);
+    canvas.fillTriangle(ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny, c);
+  }
+  canvas.fillCircle(ax, ay, r, c);
+}
+
 static void drawPiston(const FaceState& f) {
   bool glow = g_glow > 0.02f && !f.dashed && !f.gray;
   // connecting rod: wrist (94..106, y 102) in the piston frame -> big end (97..103, 10 above the pin)
@@ -223,8 +236,8 @@ static void drawPiston(const FaceState& f) {
   PP(106, 102, wrx, wry);
   float blx = SX(s_pinX - 3), bly = SY(s_pinY - 10), brx = SX(s_pinX + 3);
   if (glow) {
-    fLine(wlx, wly, blx, bly, 9 * K, s_bodyGlow);
-    fLine(wrx, wry, brx, bly, 9 * K, s_bodyGlow);
+    glowLine(wlx, wly, blx, bly, 9 * K, s_bodyGlow);
+    glowLine(wrx, wry, brx, bly, 9 * K, s_bodyGlow);
     sRing(s_pinX, s_pinY, 10, 9, s_bodyGlow);
   }
   fLine(wlx, wly, blx, bly, 4 * K, s_body);
@@ -244,7 +257,7 @@ static void drawPiston(const FaceState& f) {
   int segs = (int)(PN * f.drawFrac + 0.5f);
   float w = 5 * K * s_hs;
   if (glow)
-    for (int i = 0; i < segs; i++) fLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w + 6, s_bodyGlow);
+    for (int i = 0; i < segs; i++) glowLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w + 6, s_bodyGlow);
   for (int i = 0; i < segs; i++) {
     if (f.dashed && (i & 1)) continue;
     fLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w, s_body);

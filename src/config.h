@@ -16,7 +16,7 @@
 #define PIN_LCD_BL      5
 #define LCD_W         412
 #define LCD_H         412
-#define LCD_QSPI_HZ   (40 * 1000 * 1000)   // Espressif's default is 20 MHz; drop back to 20 if the image glitches
+#define LCD_QSPI_HZ   (80 * 1000 * 1000)   // Espressif default 20 MHz; 40 and 80 both clean on the owner's board. Drop back if the image glitches
 
 // One I2C bus for everything: touch SPD2010 (0x53), IMU QMI8658 (0x6B), RTC PCF85063 (0x51),
 // IO expander TCA9554 (0x20)

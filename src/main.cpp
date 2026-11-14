@@ -263,9 +263,13 @@ static void frame(uint32_t now, float dt, const BrainCtx& ctx) {
   uint32_t interval = hot ? 100 : 33;  // 30 fps, 10 fps when hot
   if (now - s_lastFrame >= interval) {
     s_lastFrame = now;
+    uint32_t t0 = micros();
     if (menuIsOpen()) menuRender(now);
     else faceRender(s_face, brainText(), s_crankAngle, blink, g_set.glow / 100.0f, now / 1000.0f);
+    uint32_t t1 = micros();
     displayPush();
+    extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
+    g_perfFrames++; g_perfDrawUs += t1 - t0; g_perfPushUs += micros() - t1;
   }
   int bri = ctx.night ? g_set.nightBri : g_set.dayBri;
   if (brainCurrent() == Expr::Sleep) bri = bri / 3;
@@ -363,7 +367,15 @@ static bool idleish() {
   return e == Expr::Idle || e == Expr::Bored || e == Expr::MusicBob;
 }
 
+uint32_t g_perfLoops = 0, g_perfLoopMaxUs = 0;   // `perf`
+uint32_t g_perfFrames = 0, g_perfDrawUs = 0, g_perfPushUs = 0;
+
 void loop() {
+  static uint32_t s_loopT = 0;
+  uint32_t lt = micros();
+  if (s_loopT) { uint32_t d = lt - s_loopT; if (d > g_perfLoopMaxUs) g_perfLoopMaxUs = d; }
+  s_loopT = lt;
+  g_perfLoops++;
   uint32_t now = millis();
   float dt = (now - s_lastLoop) / 1000.0f;
   if (dt > 0.1f) dt = 0.1f;

@@ -11,7 +11,6 @@
 #include "extras.h"
 #include <ESP_SR.h>
 #include <esp_partition.h>
-#include <Preferences.h>
 
 void requestSleep();  // main.cpp
 bool isNight();       // main.cpp
@@ -24,18 +23,10 @@ enum VoiceCmd {
   VC_BEST, VC_SUMMARY, VC_SLEEP, VC_TIME, VC_SHOW, VC_SHOW_OFF,
   VC_VOLUME,              // VC_VOLUME + i = set the volume to kVolLevels[i]
   VC_BRIGHT = VC_VOLUME + 20,   // VC_BRIGHT + i = set the brightness to kBriLevels[i]
-  VC_WAKE = 90,                 // "Hi Otto": the wake phrase, heard by the command model itself
 };
 static const int kBriLevels[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 static const int kVolLevels[] = {10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100};
 static const sr_cmd_t kCmds[] = {
-  // Wake phrase. Espressif's wake-word engine only knows fixed phrases ("Hi ESP", "Alexa", ...)
-  // and a custom one is a paid model, so in "Hi Otto" mode the command model listens all the time
-  // and these phrases arm it for the next command.
-  {VC_WAKE, "hi otto", "hi nTb"},
-  {VC_WAKE, "hey otto", "hd nTb"},
-  {VC_WAKE, "hello otto", "hcLb nTb"},
-  {VC_WAKE, "okay otto", "bKd nTb"},
   {VC_DRAG_RACE, "lets drag race", "LfTS DRaG RdS"},
   {VC_DRAG_RACE, "drag race", "DRaG RdS"},
   {VC_DRAG_RACE, "launch mode", "LeNp MbD"},
@@ -143,23 +134,14 @@ static uint32_t s_listenSince = 0;
 // Ignore guesses the model is less sure of than this (bench, Nov 2026: "volume fifty" came back as
 // "volume up" at 0.06 sure). Change with `listen thresh 0.x`; not saved.
 static float s_thresh = 0.15f;
-// "Hi Otto" must be at least this sure before Otto listens (stricter than commands: it's heard
-// all the time, so it's the one that could go off by itself). `listen wakethresh 0.x`, not saved.
-static float s_wakeThresh = 0.30f;
-// Wake mode: "Hi Otto" (command model always on, default) or "Hi ESP" (Espressif's wake-word
-// engine: fewer false wakes, but the fixed phrase). Saved in NVS ("otto"/"wakeEsp"), not Settings.
-static bool s_wakeEsp = false;
-static const uint32_t ARMED_MS = 7000;   // after "Hi Otto": how long to wait for the command
 
 static void onSr(sr_event_t ev, int cmd, int phrase) {
   // Runs on the recogniser's task: just note it, the main loop acts on it.
-  // "Hi Otto" mode never leaves command mode: every result / timeout re-arms the command model.
-  sr_mode_t back = s_wakeEsp ? SR_MODE_WAKEWORD : SR_MODE_COMMAND;
   switch (ev) {
     case SR_EVENT_WAKEWORD: s_event = 0; break;
     case SR_EVENT_WAKEWORD_CHANNEL: ESP_SR.setMode(SR_MODE_COMMAND); break;
-    case SR_EVENT_COMMAND: s_cmd = cmd; s_phrase = phrase; s_event = 1; ESP_SR.setMode(back); break;
-    case SR_EVENT_TIMEOUT: s_event = 2; ESP_SR.setMode(back); break;
+    case SR_EVENT_COMMAND: s_cmd = cmd; s_phrase = phrase; s_event = 1; ESP_SR.setMode(SR_MODE_WAKEWORD); break;
+    case SR_EVENT_TIMEOUT: s_event = 2; ESP_SR.setMode(SR_MODE_WAKEWORD); break;
     default: break;
   }
 }
@@ -168,8 +150,8 @@ static bool start() {
   if (s_running) return true;
   if (!micOk() || !s_modelsOk) return false;
   ESP_SR.onEvent(onSr);
-  s_running = ESP_SR.begin(s_stream, kCmds, N_CMDS, SR_CHANNELS_MONO, s_wakeEsp ? SR_MODE_WAKEWORD : SR_MODE_COMMAND);
-  Serial.printf("voice: %s\n", !s_running ? "ESP-SR start failed" : s_wakeEsp ? "listening for \"Hi ESP\"" : "listening for \"Hi Otto\"");
+  s_running = ESP_SR.begin(s_stream, kCmds, N_CMDS, SR_CHANNELS_MONO, SR_MODE_WAKEWORD);
+  Serial.printf("voice: %s\n", s_running ? "listening for \"Hi ESP\"" : "ESP-SR start failed");
   return s_running;
 }
 
@@ -190,10 +172,6 @@ static bool modelsLookValid(const esp_partition_t* p) {
 }
 
 bool voiceInit() {
-  Preferences pr;
-  pr.begin("otto", true);
-  s_wakeEsp = pr.getBool("wakeEsp", false);
-  pr.end();
   const esp_partition_t* p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "model");
   if (!p) { Serial.println("voice: no 'model' partition (see README: Voice commands)"); return false; }
   s_modelsOk = modelsLookValid(p);
@@ -219,22 +197,9 @@ void voiceListenNow() {
   s_event = 0;
 }
 
-void voiceSetWakeThreshold(float t) { s_wakeThresh = t; }
-
-void voiceSetWake(bool esp) {
-  if (esp == s_wakeEsp) return;
-  s_wakeEsp = esp;
-  Preferences p;
-  p.begin("otto", false);
-  p.putBool("wakeEsp", esp);
-  p.end();
-  if (s_running) { ESP_SR.end(); s_running = false; brainVoice(Expr::Idle); start(); }
-}
-
 void voiceStatus(char* b, size_t n) {
-  snprintf(b, n, "voice: %s, wake \"%s\", models %s, mic %s, setting %s, min sure %.2f (wake %.2f)",
-           s_running ? "running" : "stopped", s_wakeEsp ? "Hi ESP" : "Hi Otto",
-           s_modelsOk ? "found" : "MISSING", micOk() ? "ok" : "FAILED", g_set.voiceOn ? "on" : "off", s_thresh, s_wakeThresh);
+  snprintf(b, n, "voice: %s, models %s, mic %s, setting %s, min sure %.2f", s_running ? "running" : "stopped",
+           s_modelsOk ? "found" : "MISSING", micOk() ? "ok" : "FAILED", g_set.voiceOn ? "on" : "off", s_thresh);
 }
 
 // ------------------------------------------------------------- actions --
@@ -351,27 +316,10 @@ void voiceUpdate(uint32_t now) {
   if (!s_running) return;
   int ev = s_event;
   if (ev < 0) {
-    if (s_listenSince && !s_wakeEsp && now - s_listenSince > ARMED_MS) ev = 2;   // "Hi Otto", then nothing
-    else {
-      if (s_listenSince) brainVoice(Expr::Listening);   // keep the face up while waiting
-      return;
-    }
+    if (s_listenSince) brainVoice(Expr::Listening);   // keep the face up while waiting
+    return;
   }
   s_event = -1;
-  if (!s_wakeEsp) {
-    // "Hi Otto" mode: the command model hears everything. The wake phrase arms it; commands only
-    // count while armed; its own timeouts every few seconds mean nothing unless we're armed.
-    if (ev == 1 && s_cmd == VC_WAKE) {
-      float sure = sr_last_num ? sr_last_prob[0] : 0.0f;
-      if (sure < s_wakeThresh) { Serial.printf("voice: \"otto\" not sure enough (%.2f), ignored\n", sure); return; }
-      Serial.printf("voice: Hi Otto (sure %.2f)\n", sure);
-      ev = 0;
-    } else if (ev == 1 && !s_listenSince) {
-      return;                                         // a command without "Hi Otto" first: not for us
-    } else if (ev == 2 && (!s_listenSince || now - s_listenSince < ARMED_MS)) {
-      return;                                         // model timeout while idle, or too soon after waking
-    }
-  }
   if (ev == 0) {                                      // wake word
     Serial.println("voice: wake word");
     s_listenSince = now;
