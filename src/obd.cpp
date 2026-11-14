@@ -541,6 +541,7 @@ void obdCommand(const char* a, char* r, size_t n) {
     snprintf(r, n, "obd: bench sim on - run tools/fake_obd.py");
   } else if (!strcasecmp(a, "sim off")) {
     s_sim = false; g_obd.adapter = false; s_st = St::Off; resetData(); s_engine = false; s_hadEcu = false;
+    g_obd.mil = false; g_obd.nDtc = 0; g_obd.nCodes = 0; g_obd.proto[0] = 0;   // forget the fake car
     snprintf(r, n, "obd: sim off");
   } else if (!strcasecmp(a, "codes")) {
     obdShowCodes();
