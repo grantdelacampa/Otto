@@ -270,6 +270,8 @@ static void frame(uint32_t now, float dt, const BrainCtx& ctx) {
     displayPush();
     extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
     g_perfFrames++; g_perfDrawUs += t1 - t0; g_perfPushUs += micros() - t1;
+    if (g_bootLogN < BOOT_LOG && now < 8000)                 // `perf boot`: the first frames after power-on
+      g_bootLog[g_bootLogN++] = {now, (uint16_t)((micros() - t0) / 100), (uint8_t)brainCurrent()};
   }
   int bri = ctx.night ? g_set.nightBri : g_set.dayBri;
   if (brainCurrent() == Expr::Sleep) bri = bri / 3;
@@ -324,9 +326,9 @@ void setup() {
 
   uint32_t now = millis();
   if (coldBoot) {
-    brainEvent(Expr::Boot, 2600);
+    brainEvent(Expr::Boot, 3200);            // outline 1.5 s, eyes at 1.9 s, pumping at 2.3 s
     audioChirp(400, 1200, 300);
-    scheduleGreeting(now, 2700, false);
+    scheduleGreeting(now, 3300, false);
   } else if (s_wokeByVib) {
     scheduleGreeting(now, 1700, true);   // ENGINE ON, then the greeting
   } else {
@@ -369,6 +371,8 @@ static bool idleish() {
 
 uint32_t g_perfLoops = 0, g_perfLoopMaxUs = 0;   // `perf`
 uint32_t g_perfFrames = 0, g_perfDrawUs = 0, g_perfPushUs = 0;
+BootFrame g_bootLog[BOOT_LOG];
+int g_bootLogN = 0;
 
 void loop() {
   static uint32_t s_loopT = 0;

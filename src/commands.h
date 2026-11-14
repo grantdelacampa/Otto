@@ -15,5 +15,11 @@ struct SpeedInput {
 };
 extern SpeedInput g_speed;
 
+// `perf boot`: the first frames after power-on (main.cpp fills it)
+struct BootFrame { uint32_t t; uint16_t ms10; uint8_t expr; };   // millis, draw+push in 0.1 ms, Expr
+static const int BOOT_LOG = 120;
+extern BootFrame g_bootLog[BOOT_LOG];
+extern int g_bootLogN;
+
 void   handleCommand(const char* line, uint16_t source);
 size_t buildTelemetry(char* buf, size_t n);

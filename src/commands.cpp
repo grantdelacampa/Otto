@@ -111,6 +111,17 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "resetbest")) { launchResetBest(); reply(src, "best cleared"); }
   } else if (arg(line, "summary")) {
     if (!tripShowSummary()) reply(src, "no drive yet (needs 3+ min)");
+  } else if (arg(line, "reboot")) {              // restart the board (bench)
+    reply(src, "rebooting");
+    delay(100);
+    ESP.restart();
+  } else if (arg(line, "perf boot")) {           // the first frames after power-on: time, gap, draw+push, face
+    char b[64];
+    for (int i = 0; i < g_bootLogN; i++) {
+      snprintf(b, sizeof(b), "%5u ms  +%4u  %5.1f ms  %s", (unsigned)g_bootLog[i].t,
+               i ? (unsigned)(g_bootLog[i].t - g_bootLog[i - 1].t) : 0, g_bootLog[i].ms10 / 10.0f, exprName((Expr)g_bootLog[i].expr));
+      reply(src, b);
+    }
   } else if (arg(line, "perf")) {                // debug: loop rate + touch read timing since the last `perf`
     extern uint32_t g_perfLoops, g_perfLoopMaxUs, g_tpReads, g_tpReadUs, g_tpReadMaxUs, g_tpGapMaxMs;
     extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;

@@ -837,10 +837,10 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
   if (f.ov & OV_HOUSING) drawCylinder();
   if (f.rbright > 0.01f) {
     drawPiston(f);
-    if (f.drawFrac > 0.99f && !(f.ov & OV_BOOT) && !lantern) drawMouth(f.mouth, t, f.ov & OV_YAWN);
+    if (f.drawFrac > 0.99f && f.eyeBright > 0.01f && !lantern) drawMouth(f.mouth, t, f.ov & OV_YAWN);
   }
 
-  if (!(f.ov & OV_BOOT) && f.eyeBright > 0.01f) {
+  if (f.eyeBright > 0.01f && f.drawFrac > 0.99f) {
     Brow brow = f.brow;
     if (f.ov & OV_BROWS_DET) brow = Brow::Determined;
     if (f.ov & OV_BROWS_SAD) brow = Brow::Sad;

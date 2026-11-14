@@ -288,10 +288,16 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
       f.ov = OV_RING | OV_HOUSING; f.dashed = true; f.rbright = 0.6f; f.rest = 1; f.eye = Eye::Closed; f.brow = Brow::None;
       f.ring = ctx.calibProgress;
       break;
-    case Expr::Boot:                          // piston outline draws itself, then OTTO
-      f.ov = OV_BOOT | OV_HOUSING; f.spin = 0; f.rest = 1; f.rdy = -10;
-      f.drawFrac = fminf(1.0f, (now - start) / 1800.0f);
+    case Expr::Boot: {                        // wake-up: outline draws itself, a beat, eyes open, first strokes
+      float el = (now - start) / 1000.0f;
+      f.ov = OV_BOOT | OV_HOUSING; f.rdy = -10;
+      f.drawFrac = fminf(1.0f, el / 1.5f);    // 0 - 1.5 s: the outline
+      f.eyeBright = constrain((el - 1.9f) / 0.4f, 0.0f, 1.0f);   // 1.9 s: eyes fade in
+      f.eye = Eye::Dot; f.brow = Brow::Raised; f.mouth = Mouth::Small;
+      bool awake = el > 2.3f;                 // 2.3 s: rises off the bottom and starts to pump
+      f.rest = awake ? 0 : 1; f.spin = awake ? 140 : 0;
       break;
+    }
     case Expr::Saved:     f.eye = Eye::Happy; f.brow = Brow::Raised; f.mouth = Mouth::Pleased; f.ov |= OV_CHECK; brainSetCaption("SAVED"); break;
     case Expr::Charging:
       f.eye = Eye::Content; f.eyeDY = -4; f.mouth = Mouth::Pleased; f.spin = 60; f.ov |= OV_BATTERY | OV_CAPTION;
