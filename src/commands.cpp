@@ -260,7 +260,7 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "off")) { g_set.holidaysOn = false; settingsSave(); reply(src, "holidays off"); }
     else if (!*a) {                                // bare "holidays": today's status
       static const char* kHol[] = {"none", "newyear", "nye", "valentines", "july4", "halloween",
-                                   "thanksgiving", "christmaseve", "christmas", "birthday", "rotaryday"};
+                                   "thanksgiving", "christmaseve", "christmas", "birthday", "carbirthday"};
       int m = 0, d = 0;
       Holiday h = holidayToday(&m, &d), c = holidayCostumeType();
       char b[96];
