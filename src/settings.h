@@ -47,6 +47,11 @@ struct Settings {
   int   showMin = 60;        // car show mode turns itself off after this many minutes
   char  showL1[16] = "1997 E420";       // car show spec card, line 1
   char  showL2[24] = "W210 - 4.2 V8";   // line 2
+  // OBD-II (BLE ELM327 adapter, obd.cpp)
+  bool  obdOn = false;       // look for / use the adapter (off until one is bought)
+  int   shiftRpm = 5800;     // shift light at this rpm (0 = off)
+  int   coldCoolC = 50;      // coolant below this after a start -> warm-up face
+  int   hotCoolC = 115;      // coolant at/above this -> engine hot face
 };
 
 extern Settings g_set;

@@ -30,6 +30,7 @@
 #include "trip.h"
 #include "ota.h"
 #include "holidays.h"
+#include "obd.h"
 
 // Survive deep sleep
 RTC_DATA_ATTR static float s_sleepRef[3] = {0, 0, 0};
@@ -191,6 +192,7 @@ static void goToSleep() {
   brainEventPrio(Expr::Sleep, 4000, 99);
   showFor(1500);
   recorderSave();
+  obdDisconnect();
   motionLowPower();
   delay(300);   // the QMI8658 outputs junk (+-4 g) for ~100 ms after a mode switch
   averageAccel(s_sleepRef, 10);
@@ -244,6 +246,8 @@ static BrainCtx buildCtx() {
   c.tempC = g_motion.tempC;
   c.calibProgress = g_motion.calibProgress;
   c.lon = g_motion.lon;
+  c.rpm = obdRpm();
+  c.coolantC = g_obd.coolAt ? g_obd.coolantC : -100;
   return c;
 }
 
@@ -312,6 +316,7 @@ void setup() {
   voiceInit();
   brainInit();
   bleInit();
+  obdInit();
 
   uint32_t now = millis();
   if (coldBoot) {
@@ -374,6 +379,7 @@ void loop() {
   launchUpdate(now);
   tripUpdate(now, dt);
   otaUpdate(now);
+  obdUpdate(now);
 
   // greeting (on boot / wake / engine start)
   if (s_greetAt && (int32_t)(now - s_greetAt) >= 0) {

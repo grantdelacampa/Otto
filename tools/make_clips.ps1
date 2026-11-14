@@ -30,6 +30,8 @@ $clips = [ordered]@{
   "heiss"        = "Heiß!"                       # hot cabin
   "kalt"         = "Kalt!"                       # cold cabin
   "sehrgut"      = "Sehr gut."                   # 10 minutes of smooth driving
+  "nochkalt"     = "Noch kalt. Sanft, bitte."    # OBD: cold engine after a start
+  "warm"         = "Schön warm."                 # OBD: reached operating temperature
 }
 
 # Loudness: raw TTS sits around -25 dBFS RMS, ~11 dB under the firmware's chirps (sine at 9000 =

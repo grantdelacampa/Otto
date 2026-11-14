@@ -3,7 +3,7 @@
 #include <ArduinoJson.h>
 
 Settings g_set;
-static const uint32_t SETTINGS_VERSION = 1;   // Otto starts its own numbering (own NVS namespace)
+static const uint32_t SETTINGS_VERSION = 2;   // Otto starts its own numbering (own NVS namespace)
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 static int   clampi(int v, int lo, int hi)       { return v < lo ? lo : (v > hi ? hi : v); }
@@ -31,6 +31,9 @@ static void sanitize(Settings& s) {
   s.hotC    = clampi(s.hotC, 25, 70);
   s.coldC   = clampi(s.coldC, -30, 15);
   s.showMin = clampi(s.showMin, 5, 480);
+  s.shiftRpm  = s.shiftRpm <= 0 ? 0 : clampi(s.shiftRpm, 2000, 7500);
+  s.coldCoolC = clampi(s.coldCoolC, 20, 80);
+  s.hotCoolC  = clampi(s.hotCoolC, 95, 130);
   s.showL1[sizeof(s.showL1) - 1] = 0;
   s.showL2[sizeof(s.showL2) - 1] = 0;
 }
@@ -82,6 +85,7 @@ String settingsToJson() {
   d["guardOn"] = g_set.guardOn; d["breakOn"] = g_set.breakOn; d["cabinOn"] = g_set.cabinOn;
   d["milestoneOn"] = g_set.milestoneOn; d["hotC"] = g_set.hotC; d["coldC"] = g_set.coldC;
   d["showMin"] = g_set.showMin; d["showL1"] = g_set.showL1; d["showL2"] = g_set.showL2;
+  d["obdOn"] = g_set.obdOn; d["shiftRpm"] = g_set.shiftRpm; d["coldCoolC"] = g_set.coldCoolC; d["hotCoolC"] = g_set.hotCoolC;
   String out;
   serializeJson(d, out);
   return out;
@@ -104,6 +108,7 @@ bool settingsApplyJson(const char* json) {
   F(upX) F(upY) F(upZ)
   B(guardOn) B(breakOn) B(cabinOn) B(milestoneOn)
   I(hotC) I(coldC) I(showMin)
+  B(obdOn) I(shiftRpm) I(coldCoolC) I(hotCoolC)
   if (d["showL1"].is<const char*>()) strlcpy(s.showL1, d["showL1"].as<const char*>(), sizeof(s.showL1));
   if (d["showL2"].is<const char*>()) strlcpy(s.showL2, d["showL2"].as<const char*>(), sizeof(s.showL2));
 #undef F

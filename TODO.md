@@ -26,16 +26,19 @@
       Downloads/ESP32-S3-Touch-LCD-1.46_Structural Diagram-With Cover)
 - [ ] Optional: try LCD_QSPI_HZ 80 MHz for a faster frame push (40 MHz works)
 
-## OBD-II (needs an adapter — not bought yet)
+## OBD-II (software done Nov 14, 2026 and bench-tested with tools/fake_obd.py; needs the real adapter)
 The 1997 E420 has OBD-II (US cars from that year: ISO 9141 K-line, slow — a few readings per second in
 total; check which readings the car supports with mode 01 PID 00 once connected).
 - [ ] Get a **BLE** ELM327 adapter (the ESP32-S3 has no classic Bluetooth): e.g. Vgate iCar Pro BLE,
       OBDLink CX. Prefer one with auto-sleep so it doesn't drain the car battery when parked.
-- [ ] `obd.*`: NimBLE central next to the tuning-page peripheral; connect + reconnect, ELM327 AT setup
-      (ATZ, ATE0, ATSP0 / ATSP3), poll speed (010D) + rpm (010C) fast, coolant (0105) slowly
-- [ ] Feed what exists: `g_speed` -> full 0-30 / 0-60 + timeslips + trip miles; real engine on/off
-      instead of the vibration guess; rev reactions from rpm; Sehr gut from throttle/speed
-- [ ] New: piston stroke synced to engine rpm (scaled down); warm-up face while coolant is cold, worried
-      face if the car runs hot; check-engine face with the code (mode 03) + list in the menu;
-      rough MPG in the drive summary (MAF 0110 + speed, if supported); shift light at a set rpm
-- [ ] Bench without the car: a fake ELM327 (like tools/fake_gps.py) to test parsing and the faces
+- [x] `obd.*`: BLE central (scan, pair by name / FFF0 / 18F0, save the address), ELM327 setup + polling
+- [x] Speed -> launch timer + trip miles; engine on/off + revs from rpm; MPG from MAF in the summary
+- [x] Faces: piston synced to rpm, SHIFT ring, NOCH KALT / WARM, ENGINE HOT, CHECK ENGINE (+ menu item)
+- [x] Bench: `obd sim on` + tools/fake_obd.py (scripted drive) — every face seen on the board
+- [ ] With the adapter: `obd on`, check it pairs (`obd`), the protocol it finds, which PIDs the car
+      supports (status line after "car answers"), and the poll rate. If an adapter needs a different
+      characteristic or a PIN, that's in `bleConnect()` in obd.cpp
+- [ ] In the car: is the shift rpm right for the M119, are 50 / 115 C sensible coolant limits, does the
+      rpm-synced piston feel right (factor 0.2 in brain.cpp), does MPG come out plausible
+- [ ] Sehr gut from throttle/speed smoothness too (now g-forces only)
+- [ ] Battery drain: does the adapter sleep when the car is off?

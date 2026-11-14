@@ -12,11 +12,12 @@
 #include "launch.h"
 #include "extras.h"
 #include "holidays.h"
+#include "obd.h"
 #include <time.h>
 
 enum class Kind : uint8_t { Value, Toggle, Action, BdayPicker };
 enum class View : uint8_t { List, Edit, ConfirmCal, Info, BdayMonth, BdayDay };
-enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show };
+enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes };
 
 struct Item {
   const char* name;
@@ -45,6 +46,8 @@ static Item s_items[] = {
   {"LAUNCH MODE",  Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Launch},
   {"CAR SHOW",     Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Show},
   {"GUARD",        Kind::Toggle, nullptr, &g_set.guardOn, 0, 0, 0, Act::None},
+  {"OBD ADAPTER",  Kind::Toggle, nullptr, &g_set.obdOn,   0, 0, 0, Act::None},
+  {"ENGINE CODES", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Codes},
   {"RECALIBRATE",  Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Recal},
   {"INFO",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Info},
   {"EXIT",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Exit},
@@ -111,6 +114,7 @@ void menuTap(float, float) {
           case Act::Show: menuClose(true); extrasShow(true); break;
           case Act::Recal: s_view = View::ConfirmCal; break;
           case Act::Info: s_view = View::Info; break;
+          case Act::Codes: menuClose(true); obdShowCodes(); break;
           case Act::Exit: menuClose(true); break;
           default: break;
         }

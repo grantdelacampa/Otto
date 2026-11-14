@@ -20,6 +20,7 @@
 #include "extras.h"
 #include "holidays.h"
 #include "music.h"
+#include "obd.h"
 
 SpeedInput g_speed;
 void requestSleep();  // main.cpp
@@ -46,6 +47,7 @@ static bool cardDemo(Expr e, uint32_t ms) {
     case Expr::Updating:     brainSetRing(0.64f); break;
     case Expr::MenuOpening:  brainSetRing(0.6f); break;
     case Expr::LaunchReady:  brainSetCaption("0-60 ARMED"); break;
+    case Expr::CheckEngine:  brainSetAnswer("CHECK ENGINE", "P0171", "CODE 1 OF 2 - LAMP ON"); break;
     default: return false;
   }
   brainEventPrio(e, ms, 120);
@@ -57,12 +59,12 @@ size_t buildTelemetry(char* b, size_t n) {
   return snprintf(b, n,
                   "{\"bat\":%d,\"mv\":%d,\"chg\":%d,\"tc\":%.1f,\"lon\":%.2f,\"lat\":%.2f,\"vert\":%.2f,"
                   "\"yaw\":%.0f,\"ex\":\"%s\",\"cal\":%d,\"pk\":[%.2f,%.2f,%.2f,%.0f,%.2f],"
-                  "\"vib\":%.3f,\"eng\":%d,\"best\":%.1f,\"cab\":%.1f,\"rh\":%.0f}",
+                  "\"vib\":%.3f,\"eng\":%d,\"best\":%.1f,\"obd\":%d,\"rpm\":%.0f,\"cool\":%.0f}",
                   powerPct(), (int)(powerVolts() * 1000), powerCharging(), g_motion.tempC, g_motion.lon,
                   g_motion.lat, g_motion.vert, g_motion.yaw, exprName(brainCurrent()),
                   g_set.calibrated, p.brake, p.accel, p.lat, p.yaw, p.bump,
                   g_motion.vib, g_motion.engineOn, launchBest(),
-                  shtc3Ok() ? shtc3TempC() : -99.0f, shtc3Ok() ? shtc3Humidity() : -1.0f);
+                  g_obd.ecu ? 2 : g_obd.adapter ? 1 : 0, obdRpm(), g_obd.coolAt ? g_obd.coolantC : -100.0f);
 }
 
 void handleCommand(const char* raw, uint16_t src) {
@@ -75,7 +77,13 @@ void handleCommand(const char* raw, uint16_t src) {
   if (!L) return;
   const char* a;
 
-  if ((a = arg(line, "hello"))) {
+  if (!strncasecmp(line, "obd<", 4)) {          // bench: a reply from tools/fake_obd.py
+    obdSimRx(line[4] == ' ' ? line + 5 : line + 4);
+  } else if ((a = arg(line, "obd"))) {
+    char b[240];
+    obdCommand(a, b, sizeof(b));
+    reply(src, b);
+  } else if ((a = arg(line, "hello"))) {
     reply(src, src == SRC_SERIAL ? "hi from OTTO " FW_VERSION : "hello " FW_VERSION);
   } else if ((a = arg(line, "voice"))) {
     Expr e;
@@ -275,7 +283,7 @@ void handleCommand(const char* raw, uint16_t src) {
     brainEvent(Expr::Boop, 1200);
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
-    reply(src, "hello voice expr speed launch summary volume answer "
+    reply(src, "hello voice expr obd speed launch summary volume answer "
                "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {

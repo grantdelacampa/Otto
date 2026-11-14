@@ -60,6 +60,15 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
 - Sehr gut: main.cpp counts smooth driving seconds (reset by braking/accel/bump/dizzy/V8/rev/launch).
 - Holiday swap: Rotor's Jun 23 Rotary Day became **Jan 29 PatentDay** (Benz patent 1886, the car's
   birthday) — `Holiday::PatentDay`, `Expr::HolidayPatent`, wreath text "AUTO-GEBURTSTAG".
+- **OBD-II** (`obd.*`, Nov 14, 2026): BLE central to an ELM327 (the S3 has no classic BT). Pairs with
+  the first adapter by name / FFF0 / 18F0 service, saves its address (NVS `obdAddr`). One command at a
+  time until the '>' prompt; replies parsed by `findReply()`. Feeds `g_speed`, engine on/off in
+  motion.cpp (`obdEngineState()` overrides the vibration counters), revs, MPG in trip.cpp,
+  `ctx.rpm` / `ctx.coolantC`. Faces WarmUp / Warm / EngineHot / CheckEngine, OV_SHIFT (23),
+  OV_THERMO (38). Off by default (`obdOn`). `obd sim on` + tools/fake_obd.py = bench without hardware.
+  Never clears codes (mode 04) on purpose. Settings went to SETTINGS_VERSION 2 for the OBD keys.
+- Telemetry dropped `cab`/`rh` (no SHTC3 on this board) for `obd`/`rpm`/`cool`; keep it under ~240 chars
+  (BLE notify size).
 - Voice clips: German, generated with `tools/make_clips.ps1` via `tools/tts.ps1` (any WinRT voice,
   `-Lang de-DE`). **No German voice is installed on the owner's PC yet** (only en-US + ja-JP), so
   `data/clips` is empty and every clip plays the chirp for now.
