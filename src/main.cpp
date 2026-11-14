@@ -30,6 +30,7 @@
 #include "trip.h"
 #include "ota.h"
 #include "holidays.h"
+#include "obd.h"
 
 // Survive deep sleep
 RTC_DATA_ATTR static float s_sleepRef[3] = {0, 0, 0};
@@ -191,6 +192,7 @@ static void goToSleep() {
   brainEventPrio(Expr::Sleep, 4000, 99);
   showFor(1500);
   recorderSave();
+  obdDisconnect();
   motionLowPower();
   delay(300);   // the QMI8658 outputs junk (+-4 g) for ~100 ms after a mode switch
   averageAccel(s_sleepRef, 10);
@@ -244,6 +246,8 @@ static BrainCtx buildCtx() {
   c.tempC = g_motion.tempC;
   c.calibProgress = g_motion.calibProgress;
   c.lon = g_motion.lon;
+  c.rpm = obdRpm();
+  c.coolantC = g_obd.coolAt ? g_obd.coolantC : -100;
   return c;
 }
 
@@ -259,9 +263,15 @@ static void frame(uint32_t now, float dt, const BrainCtx& ctx) {
   uint32_t interval = hot ? 100 : 33;  // 30 fps, 10 fps when hot
   if (now - s_lastFrame >= interval) {
     s_lastFrame = now;
+    uint32_t t0 = micros();
     if (menuIsOpen()) menuRender(now);
     else faceRender(s_face, brainText(), s_crankAngle, blink, g_set.glow / 100.0f, now / 1000.0f);
+    uint32_t t1 = micros();
     displayPush();
+    extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
+    g_perfFrames++; g_perfDrawUs += t1 - t0; g_perfPushUs += micros() - t1;
+    if (g_bootLogN < BOOT_LOG && now < 8000)                 // `perf boot`: the first frames after power-on
+      g_bootLog[g_bootLogN++] = {now, (uint16_t)((micros() - t0) / 100), (uint8_t)brainCurrent()};
   }
   int bri = ctx.night ? g_set.nightBri : g_set.dayBri;
   if (brainCurrent() == Expr::Sleep) bri = bri / 3;
@@ -312,12 +322,13 @@ void setup() {
   voiceInit();
   brainInit();
   bleInit();
+  obdInit();
 
   uint32_t now = millis();
   if (coldBoot) {
-    brainEvent(Expr::Boot, 2600);
+    brainEvent(Expr::Boot, 3200);            // outline 1.5 s, eyes at 1.9 s, pumping at 2.3 s
     audioChirp(400, 1200, 300);
-    scheduleGreeting(now, 2700, false);
+    scheduleGreeting(now, 3300, false);
   } else if (s_wokeByVib) {
     scheduleGreeting(now, 1700, true);   // ENGINE ON, then the greeting
   } else {
@@ -358,7 +369,17 @@ static bool idleish() {
   return e == Expr::Idle || e == Expr::Bored || e == Expr::MusicBob;
 }
 
+uint32_t g_perfLoops = 0, g_perfLoopMaxUs = 0;   // `perf`
+uint32_t g_perfFrames = 0, g_perfDrawUs = 0, g_perfPushUs = 0;
+BootFrame g_bootLog[BOOT_LOG];
+int g_bootLogN = 0;
+
 void loop() {
+  static uint32_t s_loopT = 0;
+  uint32_t lt = micros();
+  if (s_loopT) { uint32_t d = lt - s_loopT; if (d > g_perfLoopMaxUs) g_perfLoopMaxUs = d; }
+  s_loopT = lt;
+  g_perfLoops++;
   uint32_t now = millis();
   float dt = (now - s_lastLoop) / 1000.0f;
   if (dt > 0.1f) dt = 0.1f;
@@ -374,6 +395,7 @@ void loop() {
   launchUpdate(now);
   tripUpdate(now, dt);
   otaUpdate(now);
+  obdUpdate(now);
 
   // greeting (on boot / wake / engine start)
   if (s_greetAt && (int32_t)(now - s_greetAt) >= 0) {

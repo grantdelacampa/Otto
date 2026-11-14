@@ -382,7 +382,7 @@ esp_err_t sr_start(
   ret_val = xTaskCreatePinnedToCore(&audio_feed_task, "SR Feed Task", 4 * 1024, NULL, 5, &g_sr_data->feed_task, 0);
   ESP_GOTO_ON_FALSE(pdPASS == ret_val, ESP_FAIL, err, "Failed create audio feed task");
   vTaskDelay(10);
-  ret_val = xTaskCreatePinnedToCore(&audio_detect_task, "SR Detect Task", 8 * 1024, NULL, 5, &g_sr_data->detect_task, 1);
+  ret_val = xTaskCreatePinnedToCore(&audio_detect_task, "SR Detect Task", 8 * 1024, NULL, 1, &g_sr_data->detect_task, 1);   // Otto: priority 1 = loopTask, so they take turns (at 5 speech pushed the main loop aside; bench Nov 15 2026: ~12 fps instead of ~5)
   ESP_GOTO_ON_FALSE(pdPASS == ret_val, ESP_FAIL, err, "Failed create audio detect task");
   ret_val = xTaskCreatePinnedToCore(&sr_handler_task, "SR Handler Task", 6 * 1024, NULL, configMAX_PRIORITIES - 1, &g_sr_data->handle_task, 1);
   //ret_val = xTaskCreatePinnedToCore(&sr_handler_task, "SR Handler Task", 6 * 1024, NULL, configMAX_PRIORITIES - 1, &g_sr_data->handle_task, 0);

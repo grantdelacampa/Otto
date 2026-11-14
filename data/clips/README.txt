@@ -31,6 +31,10 @@ Extras:
   heiss.wav         Heiß!                       (hot cabin)
   kalt.wav          Kalt!                       (cold cabin)
 
+OBD-II (with the adapter):
+  nochkalt.wav      Noch kalt. Sanft, bitte.    (cold engine after a start: go easy)
+  warm.wav          Schön warm.                 (engine reached operating temperature)
+
 Generate them all with a Windows German voice (add one first: Settings > Time & language >
 Speech > Add voices > Deutsch (Deutschland)), from the repo root:
 

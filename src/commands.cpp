@@ -20,6 +20,7 @@
 #include "extras.h"
 #include "holidays.h"
 #include "music.h"
+#include "obd.h"
 
 SpeedInput g_speed;
 void requestSleep();  // main.cpp
@@ -46,6 +47,7 @@ static bool cardDemo(Expr e, uint32_t ms) {
     case Expr::Updating:     brainSetRing(0.64f); break;
     case Expr::MenuOpening:  brainSetRing(0.6f); break;
     case Expr::LaunchReady:  brainSetCaption("0-60 ARMED"); break;
+    case Expr::CheckEngine:  brainSetAnswer("CHECK ENGINE", "P0171", "CODE 1 OF 2 - LAMP ON"); break;
     default: return false;
   }
   brainEventPrio(e, ms, 120);
@@ -57,12 +59,12 @@ size_t buildTelemetry(char* b, size_t n) {
   return snprintf(b, n,
                   "{\"bat\":%d,\"mv\":%d,\"chg\":%d,\"tc\":%.1f,\"lon\":%.2f,\"lat\":%.2f,\"vert\":%.2f,"
                   "\"yaw\":%.0f,\"ex\":\"%s\",\"cal\":%d,\"pk\":[%.2f,%.2f,%.2f,%.0f,%.2f],"
-                  "\"vib\":%.3f,\"eng\":%d,\"best\":%.1f,\"cab\":%.1f,\"rh\":%.0f}",
+                  "\"vib\":%.3f,\"eng\":%d,\"best\":%.1f,\"obd\":%d,\"rpm\":%.0f,\"cool\":%.0f}",
                   powerPct(), (int)(powerVolts() * 1000), powerCharging(), g_motion.tempC, g_motion.lon,
                   g_motion.lat, g_motion.vert, g_motion.yaw, exprName(brainCurrent()),
                   g_set.calibrated, p.brake, p.accel, p.lat, p.yaw, p.bump,
                   g_motion.vib, g_motion.engineOn, launchBest(),
-                  shtc3Ok() ? shtc3TempC() : -99.0f, shtc3Ok() ? shtc3Humidity() : -1.0f);
+                  g_obd.ecu ? 2 : g_obd.adapter ? 1 : 0, obdRpm(), g_obd.coolAt ? g_obd.coolantC : -100.0f);
 }
 
 void handleCommand(const char* raw, uint16_t src) {
@@ -75,7 +77,13 @@ void handleCommand(const char* raw, uint16_t src) {
   if (!L) return;
   const char* a;
 
-  if ((a = arg(line, "hello"))) {
+  if (!strncasecmp(line, "obd<", 4)) {          // bench: a reply from tools/fake_obd.py
+    obdSimRx(line[4] == ' ' ? line + 5 : line + 4);
+  } else if ((a = arg(line, "obd"))) {
+    char b[240];
+    obdCommand(a, b, sizeof(b));
+    reply(src, b);
+  } else if ((a = arg(line, "hello"))) {
     reply(src, src == SRC_SERIAL ? "hi from OTTO " FW_VERSION : "hello " FW_VERSION);
   } else if ((a = arg(line, "voice"))) {
     Expr e;
@@ -103,11 +111,52 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "resetbest")) { launchResetBest(); reply(src, "best cleared"); }
   } else if (arg(line, "summary")) {
     if (!tripShowSummary()) reply(src, "no drive yet (needs 3+ min)");
-  } else if (arg(line, "touch")) {               // debug: print raw touch points for 5 s
-    uint32_t until = millis() + 5000;
+  } else if (arg(line, "reboot")) {              // restart the board (bench)
+    reply(src, "rebooting");
+    delay(100);
+    ESP.restart();
+  } else if (arg(line, "perf boot")) {           // the first frames after power-on: time, gap, draw+push, face
+    char b[64];
+    for (int i = 0; i < g_bootLogN; i++) {
+      snprintf(b, sizeof(b), "%5u ms  +%4u  %5.1f ms  %s", (unsigned)g_bootLog[i].t,
+               i ? (unsigned)(g_bootLog[i].t - g_bootLog[i - 1].t) : 0, g_bootLog[i].ms10 / 10.0f, exprName((Expr)g_bootLog[i].expr));
+      reply(src, b);
+    }
+  } else if (arg(line, "perf")) {                // debug: loop rate + touch read timing since the last `perf`
+    extern uint32_t g_perfLoops, g_perfLoopMaxUs, g_tpReads, g_tpReadUs, g_tpReadMaxUs, g_tpGapMaxMs;
+    extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
+    static uint32_t s_since = 0;
+    uint32_t now = millis(), span = s_since ? now - s_since : now;
+    char b[200];
+    snprintf(b, sizeof(b), "perf: %.1f s, loop %.0f/s (longest %.1f ms), touch reads %u (avg %.2f ms, longest %.2f ms), longest gap while touched %u ms",
+             span / 1000.0f, g_perfLoops * 1000.0f / (span ? span : 1), g_perfLoopMaxUs / 1000.0f, (unsigned)g_tpReads,
+             g_tpReads ? g_tpReadUs / 1000.0f / g_tpReads : 0.0f, g_tpReadMaxUs / 1000.0f, (unsigned)g_tpGapMaxMs);
+    reply(src, b);
+    snprintf(b, sizeof(b), "perf: %u frames, draw %.1f ms, push %.1f ms per frame", (unsigned)g_perfFrames,
+             g_perfFrames ? g_perfDrawUs / 1000.0f / g_perfFrames : 0.0f, g_perfFrames ? g_perfPushUs / 1000.0f / g_perfFrames : 0.0f);
+    reply(src, b);
+    g_perfFrames = g_perfDrawUs = g_perfPushUs = 0;
+    g_perfLoops = g_perfLoopMaxUs = g_tpReads = g_tpReadUs = g_tpReadMaxUs = g_tpGapMaxMs = 0;
+    s_since = now;
+  } else if (!strncasecmp(line, "touch raw", 9)) {   // debug: every SPD2010 status read: touch raw [secs]
+    float secs = line[9] ? atof(line + 9) : 10;
+    uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
+    while (millis() < until) {
+      TouchPoint p[1];
+      int n = touchRawRead(p);
+      if (n > 0) Serial.printf("   -> (%d,%d)\n", p[0].x, p[0].y);
+      else Serial.printf("   -> n %d\n", n);
+      delay(15);
+    }
+  } else if ((a = arg(line, "touch"))) {         // debug: print raw touch points: touch [secs] (default 5)
+    float secs = *a ? atof(a) : 5;
+    uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
+    int lastN = 0;
     while (millis() < until) {
       TouchPoint p[5];
       int n = touchDebugRead(p, 5);
+      if (n == 0 && lastN != 0) reply(src, "0: lifted");
+      if (n >= 0) lastN = n;
       if (n > 0) {
         char b[96];
         int k = snprintf(b, sizeof(b), "%d:", n);
@@ -181,7 +230,7 @@ void handleCommand(const char* raw, uint16_t src) {
     }
     motionInit();                                // back to normal mode
   } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|thresh 0.x]  (bare = status)
-    char b[96];
+    char b[160];
     if (!strcasecmp(a, "on") || !strcasecmp(a, "off")) {
       g_set.voiceOn = !strcasecmp(a, "on"); settingsSave(); voiceSetEnabled(g_set.voiceOn);
     } else if (!strcasecmp(a, "now")) voiceListenNow();
@@ -260,7 +309,7 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "off")) { g_set.holidaysOn = false; settingsSave(); reply(src, "holidays off"); }
     else if (!*a) {                                // bare "holidays": today's status
       static const char* kHol[] = {"none", "newyear", "nye", "valentines", "july4", "halloween",
-                                   "thanksgiving", "christmaseve", "christmas", "birthday", "rotaryday"};
+                                   "thanksgiving", "christmaseve", "christmas", "birthday", "carbirthday"};
       int m = 0, d = 0;
       Holiday h = holidayToday(&m, &d), c = holidayCostumeType();
       char b[96];
@@ -275,7 +324,7 @@ void handleCommand(const char* raw, uint16_t src) {
     brainEvent(Expr::Boop, 1200);
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
-    reply(src, "hello voice expr speed launch summary volume answer "
+    reply(src, "hello voice expr obd speed launch summary volume answer "
                "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {

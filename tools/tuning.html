@@ -81,8 +81,8 @@
       <canvas id="gmeter" width="280" height="280" role="img" aria-label="Live g-force meter with last drive peaks"></canvas>
       <div class="mono" style="font-size:18px;color:var(--gray);text-align:center">LIVE G <span id="gnow" style="color:var(--pink)">--</span> · <span style="color:var(--yellow)">PEAKS</span></div>
       <div class="stats mono">
-        <div>BAT <b id="sBat">--</b></div><div>TEMP <b id="sTemp">--</b></div><div>CABIN <b id="sCab">--</b></div>
-        <div>FACE <b id="sExpr">--</b></div><div>CALIBRATED <b id="sCal">--</b></div>
+        <div>BAT <b id="sBat">--</b></div><div>TEMP <b id="sTemp">--</b></div><div>OBD <b id="sObd">--</b></div>
+        <div>FACE <b id="sExpr">--</b></div><div>RPM <b id="sRpm">--</b></div><div>COOLANT <b id="sCool">--</b></div>
         <div>CHG <b id="sChg">--</b></div><div>CAL <b id="sCal">--</b></div>
       </div>
       <div class="lock mono" id="lock">MOVING // TUNING LOCKED</div>
@@ -204,7 +204,7 @@ const FACES = [
   'engineon','rev','launchready','launchrun','launchresult','launchtree','launchgo','launchred',
   'launchrecord','summary','updating','hotoff','holidaybirthday','holidaynewyear','holidayjuly4',
   'holidayhalloween','holidaychristmas','guard','missedyou','milestone','breaktime','hotcabin',
-  'coldcabin','showcard','holidaypatent'];
+  'coldcabin','showcard','holidaypatent','warmup','warm','enginehot','checkengine'];
 
 // slider definitions: key, label, min, max, step, format, note
 const SLIDERS = {
@@ -233,6 +233,9 @@ const SLIDERS = {
     ['hotOffC', 'HEAT CUTOFF', 50, 80, 1, v => v + '°C', 'SLEEPS ABOVE THIS, RECHECKS EVERY 5 MIN'],
     ['hotC', 'HOT CABIN FACE', 25, 60, 1, v => v + '°C', 'ON WAKE, BOARD TEMP ABOVE THIS'],
     ['coldC', 'COLD CABIN FACE', -20, 20, 1, v => v + '°C', 'ON WAKE, BOARD TEMP BELOW THIS'],
+    ['shiftRpm', 'SHIFT LIGHT (OBD)', 0, 7500, 100, v => v ? v + ' RPM' : 'OFF', 'NEEDS THE OBD ADAPTER'],
+    ['coldCoolC', 'COLD ENGINE FACE (OBD)', 20, 80, 1, v => v + '°C', 'COOLANT BELOW THIS AFTER A START'],
+    ['hotCoolC', 'ENGINE HOT FACE (OBD)', 95, 130, 1, v => v + '°C', 'COOLANT AT OR ABOVE THIS'],
     ['showMin', 'CAR SHOW TIME', 10, 240, 10, v => v + ' MIN', 'SHOW MODE TURNS ITSELF OFF AFTER'],
   ],
 };
@@ -243,7 +246,7 @@ const TOGGLES = {
   pCar: [['revOn', 'REV REACTIONS'], ['launchOn', 'AUTO 0-60 TIMING'], ['treePro', 'PRO TREE (ALL AMBERS, .400)'], ['voiceOn', 'VOICE COMMANDS ("HI ESP")'], ['guardOn', 'GUARD MODE (BUMPS WHILE PARKED)'],
          ['breakOn', 'BREAK REMINDER (2 H)'], ['cabinOn', 'HOT / COLD CABIN FACES'], ['milestoneOn', 'MILESTONES + MISSED YOU'], ['summaryOn', 'DRIVE SUMMARY'],
          ['touchWake', 'TOUCH WAKES OTTO'], ['motionWake', 'MOTION WAKES OTTO'],
-         ['holidaysOn', 'HOLIDAY SCREENS']],
+         ['holidaysOn', 'HOLIDAY SCREENS'], ['obdOn', 'OBD-II ADAPTER (BLE ELM327)']],
 };
 const PEAK_KEYS = ['brake', 'accel', 'lat', 'yaw', 'bump'];
 
@@ -487,9 +490,10 @@ function onTelem(ev) {
   }
   $('sBat').textContent = j.bat + '%';
   $('sTemp').textContent = j.tc + '°C';
-  if ($('sCab')) $('sCab').textContent = (j.cab > -90) ? j.cab + '°C · ' + j.rh + '%' : '--';
+  $('sObd').textContent = ['OFF', 'ADAPTER', 'CAR'][j.obd || 0];
+  $('sRpm').textContent = j.rpm > 0 ? j.rpm : '--';
+  $('sCool').textContent = j.cool > -90 ? j.cool + '°C' : '--';
   $('sExpr').textContent = String(j.ex).toUpperCase();
-  $('sCal').textContent = j.cal ? 'YES' : 'NO';
   $('sChg').textContent = j.chg ? 'YES' : 'NO';
   $('sCal').textContent = j.cal ? 'OK' : 'NEEDED';
   $('gnow').textContent = Math.hypot(j.lon, j.lat).toFixed(2);

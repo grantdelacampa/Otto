@@ -36,6 +36,7 @@ enum : uint64_t {
   OV_TWINKLE    = 1ull << 20,  // two twinkling stars (sehr gut)
   OV_CHECK      = 1ull << 21,  // check mark + caption text
   OV_CAPTION    = 1ull << 22,
+  OV_SHIFT      = 1ull << 23,  // shift light: flashing ring (OBD rpm >= shiftRpm)
   OV_SIDELINES  = 1ull << 24,  // speed lines on both sides (launch)
   OV_BROWS_SAD  = 1ull << 25,
   OV_BROWS_DET  = 1ull << 26,
@@ -50,6 +51,7 @@ enum : uint64_t {
   OV_STEAM      = 1ull << 35,  // grumpy
   OV_LOCK       = 1ull << 36,  // menu locked
   OV_PUFFS      = 1ull << 37,  // exhaust puffs (rev)
+  OV_THERMO     = 1ull << 38,  // coolant thermometer (fill = bat, color = batColor)
   OV_LIGHTS     = 1ull << 39,  // launch staging lights
   OV_RUMBLE     = 1ull << 40,  // engine start zigzags
   OV_UPDATE     = 1ull << 41,  // firmware update ring + text

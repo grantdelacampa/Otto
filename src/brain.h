@@ -15,6 +15,7 @@ enum class Expr : uint8_t {
   EngineOn, Rev, LaunchReady, LaunchRun, LaunchResult, LaunchTree, LaunchGo, LaunchRed, LaunchRecord, Summary, Updating, HotOff,
   HolidayBirthday, HolidayNewYear, HolidayJuly4, HolidayHalloween, HolidayChristmas,
   Guard, MissedYou, Milestone, BreakTime, HotCabin, ColdCabin, ShowCard, HolidayPatent,
+  WarmUp, Warm, EngineHot, CheckEngine,   // OBD-II (obd.cpp)
   COUNT
 };
 
@@ -31,6 +32,8 @@ struct BrainCtx {
   float tempC = 25;
   float calibProgress = 0;
   float lon = 0;                // current longitudinal g, for captions
+  float rpm = 0;                // engine rpm from OBD (0 = unknown / not linked)
+  float coolantC = -100;        // coolant from OBD (-100 = unknown)
 };
 
 void      brainInit();

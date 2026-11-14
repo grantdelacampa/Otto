@@ -2,6 +2,7 @@
 #include "settings.h"
 #include "config.h"
 #include "holidays.h"
+#include "menu.h"
 
 static const char* kNames[] = {
   "idle", "bored", "musicbob",
@@ -14,6 +15,7 @@ static const char* kNames[] = {
   "engineon", "rev", "launchready", "launchrun", "launchresult", "launchtree", "launchgo", "launchred", "launchrecord", "summary", "updating", "hotoff",
   "holidaybirthday", "holidaynewyear", "holidayjuly4", "holidayhalloween", "holidaychristmas",
   "guard", "missedyou", "milestone", "breaktime", "hotcabin", "coldcabin", "showcard", "holidaypatent",
+  "warmup", "warm", "enginehot", "checkengine",
 };
 static_assert(sizeof(kNames) / sizeof(kNames[0]) == (size_t)Expr::COUNT, "names out of sync");
 
@@ -44,7 +46,10 @@ static int defaultPrio(Expr e) {
     case Expr::LaunchReady: return 48;
     case Expr::Summary: return 46;
     case Expr::Rev: return 45;
-    case Expr::SehrGut: return 42;
+    case Expr::SehrGut: case Expr::Warm: return 42;
+    case Expr::WarmUp: return 43;
+    case Expr::CheckEngine: return 47;
+    case Expr::EngineHot: return 62;
     case Expr::Guard: case Expr::Milestone: case Expr::BreakTime: case Expr::HotCabin: case Expr::ColdCabin: return 44;
     case Expr::MissedYou: return 41;
     case Expr::HolidayPatent: return 95;
@@ -283,10 +288,16 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
       f.ov = OV_RING | OV_HOUSING; f.dashed = true; f.rbright = 0.6f; f.rest = 1; f.eye = Eye::Closed; f.brow = Brow::None;
       f.ring = ctx.calibProgress;
       break;
-    case Expr::Boot:                          // piston outline draws itself, then OTTO
-      f.ov = OV_BOOT | OV_HOUSING; f.spin = 0; f.rest = 1; f.rdy = -10;
-      f.drawFrac = fminf(1.0f, (now - start) / 1800.0f);
+    case Expr::Boot: {                        // wake-up: outline draws itself, a beat, eyes open, first strokes
+      float el = (now - start) / 1000.0f;
+      f.ov = OV_BOOT | OV_HOUSING; f.rdy = -10;
+      f.drawFrac = fminf(1.0f, el / 1.5f);    // 0 - 1.5 s: the outline
+      f.eyeBright = constrain((el - 1.9f) / 0.4f, 0.0f, 1.0f);   // 1.9 s: eyes fade in
+      f.eye = Eye::Dot; f.brow = Brow::Raised; f.mouth = Mouth::Small;
+      bool awake = el > 2.3f;                 // 2.3 s: rises off the bottom and starts to pump
+      f.rest = awake ? 0 : 1; f.spin = awake ? 140 : 0;
       break;
+    }
     case Expr::Saved:     f.eye = Eye::Happy; f.brow = Brow::Raised; f.mouth = Mouth::Pleased; f.ov |= OV_CHECK; brainSetCaption("SAVED"); break;
     case Expr::Charging:
       f.eye = Eye::Content; f.eyeDY = -4; f.mouth = Mouth::Pleased; f.spin = 60; f.ov |= OV_BATTERY | OV_CAPTION;
@@ -475,6 +486,29 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
       f.brow = Brow::Pleased; f.mouth = Mouth::Pleased;
       break;
 
+    // --------------------------------------------------------- OBD-II ----
+    case Expr::WarmUp: {                      // cold engine after a start: go easy
+      f.eye = Eye::Half; f.brow = Brow::Sad; f.mouth = Mouth::Grit; f.rdx = 0.8f * sinf(t * 2 * PI * 7);
+      f.ov |= OV_THERMO | OV_CAPTION; f.bat = 0.15f; f.batColor = COL_ICE; f.captionColor = COL_YELLOW;
+      if (ctx.coolantC > -100) snprintf(b, sizeof(b), "NOCH KALT %dC", (int)ctx.coolantC); else snprintf(b, sizeof(b), "NOCH KALT");
+      brainSetCaption(b);
+      break;
+    }
+    case Expr::Warm:                          // reached operating temperature
+      f.eye = Eye::Content; f.brow = Brow::Pleased; f.mouth = Mouth::Pleased;
+      f.ov |= OV_THERMO | OV_CAPTION; f.bat = 0.6f; f.batColor = COL_ICE; f.captionColor = COL_ICE;
+      snprintf(b, sizeof(b), "WARM %dC", (int)ctx.coolantC); brainSetCaption(b);
+      break;
+    case Expr::EngineHot:                     // the car is running hot (not Otto)
+      f.eye = Eye::Wavy; f.brow = Brow::Sad; f.mouth = Mouth::Frown;
+      f.ov |= OV_THERMO | OV_SWEAT | OV_CAPTION; f.bat = 1.0f; f.batColor = COL_PINK; f.captionColor = COL_PINK;
+      snprintf(b, sizeof(b), "ENGINE %dC!", (int)ctx.coolantC); brainSetCaption(b);
+      break;
+    case Expr::CheckEngine:                   // card: code + "CODE 1 OF 2" (set by obd.cpp)
+      f.ov = OV_ANSWER | OV_HOUSING; f.fcx = 120; f.fcy = 66; f.fscale = 0.42f;
+      f.eye = Eye::Ahem; f.brow = Brow::Ahem; f.mouth = Mouth::Frown; f.eyeR = 10;
+      break;
+
     default: break;
   }
 
@@ -528,5 +562,14 @@ void brainUpdate(uint32_t now, const BrainCtx& ctx, FaceState& target, float& bl
   if (!idleish && s_micro != Micro::None) s_micro = Micro::None;  // real events cancel idle bits
 
   blinkOpen = updateBlink(now);
+
+  // OBD: the piston pumps with the real engine (scaled: 700 rpm idle -> the design's 140 deg/s pump,
+  // 6000 rpm -> 1200), on full-size faces that are pumping anyway. Shift light at the set rpm.
+  if (ctx.rpm > 300 && target.rest < 0.5f && target.spin > 0 && target.fscale > 0.99f && !(target.ov & OV_LANTERN))
+    target.spin = ctx.rpm * 0.2f;
+  if (g_set.shiftRpm > 0 && ctx.rpm >= g_set.shiftRpm && !menuIsOpen()) {
+    target.ov |= OV_SHIFT;
+    if (target.fscale > 0.99f) target.brow = Brow::Angry;
+  }
 
 }

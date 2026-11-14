@@ -215,6 +215,19 @@ static void drawCylinder() {
 
 static uint16_t s_body, s_bodyGlow, s_eye, s_eyeGlow;
 
+// Glow strokes: a faint halo needs no anti-aliasing, and drawWideLine's smooth edges on the PSRAM
+// canvas cost ~37 ms of an 80 ms frame (bench, Nov 15 2026). Plain triangles + round caps instead.
+static void glowLine(float x0, float y0, float x1, float y1, float w, uint16_t c) {
+  float ax = FX(x0), ay = FY(y0), bx = FX(x1), by = FY(y1), r = FW(w) * 0.5f;
+  float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy);
+  if (len > 0.5f) {
+    float nx = -dy / len * r, ny = dx / len * r;
+    canvas.fillTriangle(ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, c);
+    canvas.fillTriangle(ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny, c);
+  }
+  canvas.fillCircle(ax, ay, r, c);
+}
+
 static void drawPiston(const FaceState& f) {
   bool glow = g_glow > 0.02f && !f.dashed && !f.gray;
   // connecting rod: wrist (94..106, y 102) in the piston frame -> big end (97..103, 10 above the pin)
@@ -223,8 +236,8 @@ static void drawPiston(const FaceState& f) {
   PP(106, 102, wrx, wry);
   float blx = SX(s_pinX - 3), bly = SY(s_pinY - 10), brx = SX(s_pinX + 3);
   if (glow) {
-    fLine(wlx, wly, blx, bly, 9 * K, s_bodyGlow);
-    fLine(wrx, wry, brx, bly, 9 * K, s_bodyGlow);
+    glowLine(wlx, wly, blx, bly, 9 * K, s_bodyGlow);
+    glowLine(wrx, wry, brx, bly, 9 * K, s_bodyGlow);
     sRing(s_pinX, s_pinY, 10, 9, s_bodyGlow);
   }
   fLine(wlx, wly, blx, bly, 4 * K, s_body);
@@ -244,7 +257,7 @@ static void drawPiston(const FaceState& f) {
   int segs = (int)(PN * f.drawFrac + 0.5f);
   float w = 5 * K * s_hs;
   if (glow)
-    for (int i = 0; i < segs; i++) fLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w + 6, s_bodyGlow);
+    for (int i = 0; i < segs; i++) glowLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w + 6, s_bodyGlow);
   for (int i = 0; i < segs; i++) {
     if (f.dashed && (i & 1)) continue;
     fLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w, s_body);
@@ -449,6 +462,21 @@ static void drawOverlays(const FaceState& f, const FaceText& tx, float t) {
   }
   if (ov & OV_QUESTION) text("?", 186, 62, &fonts::Font4, 36, 26, COL_YELLOW);
   if (ov & OV_BATTERY) drawBattery(f);
+  if (ov & OV_THERMO) {                        // coolant thermometer, low on the right
+    uint16_t c = f.batColor ? f.batColor : COL_ICE;
+    const float x = 186, top = 112, bot = 160;
+    aLine(x, top, x, bot, 9, COL_HOUSING);
+    aDot(x, bot + 6, 8, COL_HOUSING);
+    float lvl = bot - (bot - top) * constrain(f.bat, 0.0f, 1.0f);
+    aLine(x, lvl, x, bot, 5, c);
+    aDot(x, bot + 6, 5.5f, c);
+    for (int i = 0; i < 4; i++) aLine(x + 7, top + 6 + 12 * i, x + 11, top + 6 + 12 * i, 2, COL_GRAY);
+  }
+  if (ov & OV_SHIFT) {                         // shift light: the edge ring flashes yellow / pink
+    bool on = fmodf(t, 0.24f) < 0.14f;
+    if (on) aRing(120, 120, 112, 8, 0, 360, fmodf(t, 0.48f) < 0.24f ? COL_YELLOW : COL_PINK);
+    text("SHIFT", 120, 22, &fonts::Font4, 16, 26, on ? COL_YELLOW : COL_GRAY);
+  }
   if (ov & OV_SWEAT) {
     aDot(184, 84, 7, COL_ICE);
     canvas.fillTriangle(AX(177.5f), AY(81), AX(190.5f), AY(81), AX(184), AY(64), COL_ICE);
@@ -809,10 +837,10 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
   if (f.ov & OV_HOUSING) drawCylinder();
   if (f.rbright > 0.01f) {
     drawPiston(f);
-    if (f.drawFrac > 0.99f && !(f.ov & OV_BOOT) && !lantern) drawMouth(f.mouth, t, f.ov & OV_YAWN);
+    if (f.drawFrac > 0.99f && f.eyeBright > 0.01f && !lantern) drawMouth(f.mouth, t, f.ov & OV_YAWN);
   }
 
-  if (!(f.ov & OV_BOOT) && f.eyeBright > 0.01f) {
+  if (f.eyeBright > 0.01f && f.drawFrac > 0.99f) {
     Brow brow = f.brow;
     if (f.ov & OV_BROWS_DET) brow = Brow::Determined;
     if (f.ov & OV_BROWS_SAD) brow = Brow::Sad;

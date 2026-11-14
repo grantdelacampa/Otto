@@ -1,4 +1,5 @@
 #include "motion.h"
+#include "obd.h"
 #include "board.h"
 #include "brain.h"
 #include "settings.h"
@@ -406,7 +407,11 @@ void motionUpdate(uint32_t now) {
   static uint32_t s_audioAt = 0;
   if (audioBusy()) s_audioAt = now;
   bool selfNoise = s_audioAt && now - s_audioAt < 400;
-  if (selfNoise) { /* hold */ }
+  int obdEng = obdEngineState();                 // OBD knows for sure: no vibration guessing
+  if (obdEng >= 0) {
+    if (obdEng) { s_engOnMs += ms * 5; s_engOffMs = 0; } else { s_engOffMs += ms * 3; s_engOnMs = 0; }
+  }
+  else if (selfNoise) { /* hold */ }
   else if (vib > g_set.engineVib) { s_engOnMs += ms; s_engOffMs = 0; }
   else if (vib < g_set.engineVib * 0.6f) { s_engOffMs += ms; s_engOnMs = 0; }
   if (!g_motion.engineOn && s_engOnMs > 1500) { g_motion.engineOn = true; g_motion.engineStarted = true; Serial.println("motion: engine on"); }
@@ -414,7 +419,8 @@ void motionUpdate(uint32_t now) {
 
   // ---- revs: parked with the engine running, vibration jumps well above idle ----
   bool parked = g_motion.engineOn && g_motion.stoppedSecs > 2.0f;
-  if (parked) {
+  if (parked && obdRpmFresh()) { /* obd.cpp does revs from the real rpm */ }
+  else if (parked) {
     if (!s_inRev) s_idleVib += (vib - s_idleVib) * (1 - expf(-dt / 5.0f));   // learn idle level
     float base = fmaxf(s_idleVib, g_set.engineVib);
     if (!s_inRev && vib > base * g_set.revRatio && now - s_lastRev > 400) {
