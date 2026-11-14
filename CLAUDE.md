@@ -69,6 +69,10 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   Never clears codes (mode 04) on purpose. Settings went to SETTINGS_VERSION 2 for the OBD keys.
 - Telemetry dropped `cab`/`rh` (no SHTC3 on this board) for `obd`/`rpm`/`cool`; keep it under ~240 chars
   (BLE notify size).
+- **"Hi Otto"** (Nov 14, 2026): no free WakeNet model for it (custom = paid Espressif job), so in the
+  default mode the MultiNet command model runs continuously with "hi/hey/hello/okay otto" as
+  VC_WAKE; that arms it for 7 s (voice.cpp). `listen wake esp` switches back to WakeNet "Hi ESP"
+  (NVS `wakeEsp`, outside Settings). Phonemes from ESP_SR tools/gen_sr_commands.py.
 - Voice clips: German, generated with `tools/make_clips.ps1` via `tools/tts.ps1` (any WinRT voice,
   `-Lang de-DE`). **No German voice is installed on the owner's PC yet** (only en-US + ja-JP), so
   `data/clips` is empty and every clip plays the chirp for now.

@@ -111,11 +111,25 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "resetbest")) { launchResetBest(); reply(src, "best cleared"); }
   } else if (arg(line, "summary")) {
     if (!tripShowSummary()) reply(src, "no drive yet (needs 3+ min)");
-  } else if (arg(line, "touch")) {               // debug: print raw touch points for 5 s
-    uint32_t until = millis() + 5000;
+  } else if (!strncasecmp(line, "touch raw", 9)) {   // debug: every SPD2010 status read: touch raw [secs]
+    float secs = line[9] ? atof(line + 9) : 10;
+    uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
+    while (millis() < until) {
+      TouchPoint p[1];
+      int n = touchRawRead(p);
+      if (n > 0) Serial.printf("   -> (%d,%d)\n", p[0].x, p[0].y);
+      else Serial.printf("   -> n %d\n", n);
+      delay(15);
+    }
+  } else if ((a = arg(line, "touch"))) {         // debug: print raw touch points: touch [secs] (default 5)
+    float secs = *a ? atof(a) : 5;
+    uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
+    int lastN = 0;
     while (millis() < until) {
       TouchPoint p[5];
       int n = touchDebugRead(p, 5);
+      if (n == 0 && lastN != 0) reply(src, "0: lifted");
+      if (n >= 0) lastN = n;
       if (n > 0) {
         char b[96];
         int k = snprintf(b, sizeof(b), "%d:", n);
@@ -188,12 +202,15 @@ void handleCommand(const char* raw, uint16_t src) {
       delay(50);
     }
     motionInit();                                // back to normal mode
-  } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|thresh 0.x]  (bare = status)
-    char b[96];
+  } else if ((a = arg(line, "listen"))) {        // voice: listen [on|off|now|thresh 0.x|wakethresh 0.x|wake otto|esp]
+    char b[160];
     if (!strcasecmp(a, "on") || !strcasecmp(a, "off")) {
       g_set.voiceOn = !strcasecmp(a, "on"); settingsSave(); voiceSetEnabled(g_set.voiceOn);
     } else if (!strcasecmp(a, "now")) voiceListenNow();
     else if (!strncasecmp(a, "thresh", 6)) voiceSetThreshold(atof(a + 6));
+    else if (!strncasecmp(a, "wakethresh", 10)) voiceSetWakeThreshold(atof(a + 10));
+    else if (!strcasecmp(a, "wake otto")) voiceSetWake(false);
+    else if (!strcasecmp(a, "wake esp")) voiceSetWake(true);
     voiceStatus(b, sizeof(b));
     reply(src, b);
   } else if ((a = arg(line, "show"))) {          // car show mode: show on|off

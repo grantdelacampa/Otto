@@ -57,16 +57,25 @@ static void mapPoint(int16_t& x, int16_t& y) {
 }
 
 // Returns number of points (0 = no finger), or -1 if nothing new was read.
+static bool s_rawDbg = false;   // `touch raw`: print every status read
+
 static int readFrame(TouchPoint* pts) {
   uint8_t st[4];
   if (!tpRead(0x20, 0x00, st, 4)) return -1;
+  if (s_rawDbg) Serial.printf("%6lu st %02X %02X len %u int %d\n", millis() % 1000000, st[0], st[1], st[2] | (st[3] << 8), digitalRead(PIN_TP_INT));
   bool ptExist = st[0] & 0x01, gesture = st[0] & 0x02, aux = st[0] & 0x08;
   bool inBios = (st[1] >> 6) & 1, inCpu = (st[1] >> 5) & 1, cpuRun = (st[1] >> 3) & 1;
   uint16_t len = st[2] | (st[3] << 8);
 
   if (inBios) { tpWrite(CMD_CLEAR_INT, 4); tpWrite(CMD_CPU_START, 4); return -1; }
   if (inCpu)  { tpWrite(CMD_POINT_MODE, 4); tpWrite(CMD_START, 4); tpWrite(CMD_CLEAR_INT, 4); return -1; }
-  if (cpuRun && len == 0) { tpWrite(CMD_CLEAR_INT, 4); return -1; }   // nothing new
+  // No data. Status high byte 0x08 = running, nothing pending: no finger on the glass. That's how the
+  // SPD2010 shows a lift (bench, Nov 14 2026: every touch ended 01 18 -> 00 08; holds of 3-5 s never
+  // showed 00 08). 0x18 (INT pending, no data) is just an event to acknowledge.
+  if (cpuRun && len == 0) {
+    tpWrite(CMD_CLEAR_INT, 4);
+    return (!ptExist && !gesture && !(st[1] & 0x10)) ? 0 : -1;
+  }
 
   int n = -1;
   if (ptExist || gesture) {
@@ -130,9 +139,15 @@ bool touchInit() {
   return true;
 }
 
+int touchRawRead(TouchPoint* pts) {   // poll regardless of INT, with the status printed
+  s_rawDbg = true;
+  int n = readFrame(pts);
+  s_rawDbg = false;
+  return n;
+}
+
 int touchDebugRead(TouchPoint* pts, int maxPts) {
-  if (!s_intFlag && digitalRead(PIN_TP_INT) == HIGH) return 0;
-  s_intFlag = false;
+  s_intFlag = false;              // poll every time: a lift doesn't pulse INT
   TouchPoint p[MAX_PTS];
   int n = readFrame(p);
   for (int i = 0; i < n && i < maxPts; i++) pts[i] = p[i];
@@ -199,6 +214,7 @@ static void reactTap(uint32_t now) {
   s_taps[s_tapIdx++ % 6] = now;
   int recent = 0;
   for (uint32_t tt : s_taps) if (tt && now - tt < 2000) recent++;
+  Serial.printf("touch: tap (%d in 2 s)\n", recent);
   if (recent >= 5) {
     memset(s_taps, 0, sizeof(s_taps));
     brainEvent(Expr::Grumpy, 2200);
@@ -239,6 +255,8 @@ static void onRelease(uint32_t now) {
     if (dist < 14 * PX_PER_DESIGN && dur < 450) {
       if (menuIsOpen()) menuTap(g.x0, g.y0);
       else { reactTap(now); s_lastTapEnd = now; }
+    } else if (dist < 14 * PX_PER_DESIGN) {
+      Serial.printf("touch: not a tap - held %u ms\n", (unsigned)dur);   // too long for a tap, too short to pet
     } else if (g.dragging) {
       // let go of the rotor: it coasts on at the finger's speed. (The lift is only noticed
       // TOUCH_RELEASE_MS after the last report, so don't judge "paused" by the clock here: a finger

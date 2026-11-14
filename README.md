@@ -5,7 +5,7 @@ cylinder that pumps slowly at idle, strokes hard on launches, raises one eyebrow
 ("AHEM."), and greets you in German. Rotor spins, Otto strokes.
 
 It's a sibling of [Rotor](https://github.com/grantdelacampa/Rotary): the same motion, touch,
-voice, holiday and extras logic, on a different board, with its own character and **no car
+voice ("Hi Otto"), holiday and extras logic, on a different board, with its own character and **no car
 radio** (fully standalone; Bluetooth is only for the tuning page and wireless updates).
 
 Board: **Waveshare ESP32-S3-Touch-LCD-1.46B** — 1.46" 412×412 round IPS with an SPD2010
@@ -137,6 +137,8 @@ Same commands over USB and Bluetooth. `help` lists them:
 | `touch` | raw touch points for 5 s |
 | `time <unix> <tz-minutes>`, `clock` | set / show the clock (the tuning page sets it on connect) |
 | `vibcap`, `mic`, `music`, `listen` | idle vibration test, mic level, music detection, voice status |
+| `listen wake otto\|esp` | wake phrase: "Hi Otto" (default; also hey / hello / okay Otto) or Espressif's fixed "Hi ESP" (fewer false wakes); saved |
+| `touch [secs]`, `touch raw [secs]` | raw touch points / every touch-chip status read |
 | `i2cscan` | devices on the I2C bus (expect 0x20, 0x51, 0x53, 0x6B) |
 | `batlog`, `batfake <V>\|off` | battery log / pretend battery voltage |
 | `show on\|off`, `extras [guard\|hot\|cold\|missed\|milestone\|break\|patent]` | car show mode / extras demos |

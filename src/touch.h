@@ -15,3 +15,4 @@ void touchUpdate(uint32_t now);
 bool touchActive();                 // a finger is down right now
 void touchPrepareSleep();           // before deep sleep: let the chip idle so a touch can wake us
 int  touchDebugRead(TouchPoint* pts, int maxPts);  // raw read for the "touch" console command
+int  touchRawRead(TouchPoint* pts);                // `touch raw`: read now (ignores INT), prints the status

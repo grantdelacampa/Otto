@@ -11,6 +11,17 @@
 - [x] Bench: display, touch (tap, pet, crank drag), I2C devices, voice, battery ADC
 
 ## Next
+- [ ] **Fast taps don't reach grumpy (5 taps in 2 s)** — quick taps on one spot merge into one long
+      touch, which turns into petting. Found so far (`touch raw [secs]` prints every SPD2010 status):
+      a finger reads `01 18 len 10`, and a lift is simply the next read showing idle `00 08 len 0`
+      (no INT pulse); holds of 3-5 s never show `00 08`. readFrame() now returns 0 (lifted) on that,
+      but it still didn't help — next suspect is how often touchUpdate() actually reads: in the raw
+      log each read took ~60 ms even with a 15 ms delay, so with the frame render in between a short
+      lift between taps can fall between two reads. Measure readFrame() time, speed it up (the drain
+      loop / 200 us delays) and/or poll touch more often (own task, or between display stripes).
+      Serial now logs `touch: tap (N in 2 s)` and `touch: not a tap - held N ms` to check it.
+- [ ] Voice: "Hi Otto" works (bench: sure 0.50-0.52, threshold 0.30). The command model mixes up
+      "volume low" -> "volume down" and missed "what time is it" once; check in the car / tune.
 - [ ] Add a German Windows voice, run `tools/make_clips.ps1`, then `pio run -t uploadfs`
 - [ ] Check touch direction: drag clockwise around the edge -> serial `let go at +N deg/s` and the
       crank turns with the finger. If it's reversed or menu swipes feel upside down, set the
