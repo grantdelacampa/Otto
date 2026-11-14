@@ -1,0 +1,14 @@
+# PlatformIO build output
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

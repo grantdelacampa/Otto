@@ -1,0 +1,13 @@
+#pragma once
+#include <Arduino.h>
+
+// BLE peripheral "OTTO". Otto has no car radio: the only central is the browser tuning page
+// (tools/tuning.html) for settings, live data, the drive log and wireless firmware updates.
+// Commands arrive as text on the CMD characteristic (see commands.cpp).
+
+void bleInit();
+void bleUpdate(uint32_t now);
+bool bleAnyConnected();
+void bleNotifyTelemetry(const char* json);
+void bleStartLogStream();
+void bleReply(uint16_t conn, const char* msg);   // sent as {"msg":...} on telemetry

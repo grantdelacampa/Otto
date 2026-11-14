@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OTTO Tuning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=VT323&display=swap">
+<style>
+  :root {
+    --bg: #1b2029; --panel: #1d232d; --deep: #0d1117; --teal: #7cc8ff; --teal-dim: #4c7a9c;   /* Otto ice blue (name kept from Rotor) */
+    --pink: #ff6aa2; --yellow: #f4dc4b; --gray: #9aa7b6; --line: #2f3a47; --ink: #12161c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--teal); font-family: 'Chakra Petch', system-ui, sans-serif; }
+  .mono { font-family: 'VT323', ui-monospace, monospace; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: 4px; }
+  .stripe { height: 5px; background: repeating-linear-gradient(90deg, var(--yellow) 0 22px, transparent 22px 34px); }
+  button { font-family: inherit; font-weight: 700; letter-spacing: 2px; font-size: 14px; min-height: 44px; padding: 0 16px;
+           background: transparent; color: var(--teal); border: 1.5px solid var(--teal); cursor: pointer; }
+  button.yellow { color: var(--yellow); border-color: var(--yellow); }
+  button.pink { color: var(--pink); border-color: var(--pink); }
+  button.solid { background: var(--teal); color: var(--ink); }
+  button:disabled, input:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
+  .main { display: flex; gap: 16px; flex-wrap: wrap; }
+  .side { flex: 1 1 260px; max-width: 320px; border: 1.5px solid var(--teal); background: var(--panel); padding: 16px;
+          display: flex; flex-direction: column; gap: 12px; }
+  .content { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; font-size: 20px; color: var(--gray); }
+  .stats b { color: var(--teal); font-weight: 400; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tabs button { flex: 1 1 100px; border-color: var(--teal-dim); }
+  .tabs button[aria-selected="true"] { background: var(--teal); color: var(--ink); border-color: var(--teal); }
+  .panel { border: 1.5px solid var(--teal); background: var(--panel); padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; flex-direction: column; gap: 2px; }
+  .row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .row label { font-weight: 700; letter-spacing: 2px; font-size: 14px; }
+  .row .val { font-family: 'VT323', monospace; font-size: 26px; color: var(--pink); }
+  .row .note { font-family: 'VT323', monospace; font-size: 17px; color: var(--gray); }
+  input[type=range] { width: 100%; height: 30px; margin: 0; accent-color: var(--teal); }
+  .toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .toggle { display: flex; justify-content: space-between; align-items: center; border-color: var(--teal-dim); color: var(--gray); }
+  .toggle[aria-pressed="true"] { background: rgba(124,200,255,.12); border-color: var(--teal); color: var(--teal); }
+  .toggle span:last-child { font-family: 'VT323', monospace; font-size: 22px; }
+  .toggle[aria-pressed="true"] span:last-child { color: var(--yellow); }
+  .btnrow { display: flex; gap: 10px; flex-wrap: wrap; }
+  select, input[type=text] { font-family: 'VT323', monospace; font-size: 20px; background: var(--deep); color: var(--teal);
+           border: 1.5px solid var(--teal-dim); min-height: 44px; padding: 0 10px; }
+  input[type=text] { flex: 1 1 200px; }
+  .lock { font-family: 'VT323', monospace; font-size: 20px; padding: 6px 10px; border: 1.5px solid var(--pink); color: var(--pink); display: none; }
+  .lock.on { display: block; }
+  footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-family: 'VT323', monospace; font-size: 19px; }
+  #msg { color: var(--yellow); }
+  canvas { display: block; max-width: 100%; }
+  .chartbox { overflow-x: auto; }
+  .hidden { display: none !important; }
+  .legend { font-family: 'VT323', monospace; font-size: 18px; color: var(--gray); display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <h1>OTTO // TUNING</h1>
+      <span id="conn" class="mono" style="font-size:20px;color:var(--pink)">NOT CONNECTED</span>
+    </div>
+    <div class="btnrow">
+      <button id="btnConnect" class="solid" type="button">CONNECT</button>
+      <button id="btnDisconnect" type="button" disabled>DISCONNECT</button>
+    </div>
+  </header>
+  <div class="stripe"></div>
+  <p id="nobt" class="mono hidden" style="font-size:20px;color:var(--pink);margin:0">
+    This browser can't use Bluetooth. Use Chrome or Edge on a computer or Android, opened from http://localhost (see README).
+  </p>
+
+  <div class="main">
+    <aside class="side">
+      <canvas id="gmeter" width="280" height="280" role="img" aria-label="Live g-force meter with last drive peaks"></canvas>
+      <div class="mono" style="font-size:18px;color:var(--gray);text-align:center">LIVE G <span id="gnow" style="color:var(--pink)">--</span> · <span style="color:var(--yellow)">PEAKS</span></div>
+      <div class="stats mono">
+        <div>BAT <b id="sBat">--</b></div><div>TEMP <b id="sTemp">--</b></div><div>CABIN <b id="sCab">--</b></div>
+        <div>FACE <b id="sExpr">--</b></div><div>CALIBRATED <b id="sCal">--</b></div>
+        <div>CHG <b id="sChg">--</b></div><div>CAL <b id="sCal">--</b></div>
+      </div>
+      <div class="lock mono" id="lock">MOVING // TUNING LOCKED</div>
+      <button class="yellow lockable" id="btnCal" type="button">RECALIBRATE MOUNT</button>
+      <button class="lockable" id="btnFlip" type="button">FLIP FORWARD</button>
+    </aside>
+
+    <section class="content">
+      <div class="tabs" role="tablist" aria-label="Tuning sections">
+        <button role="tab" aria-selected="true" data-tab="motion" type="button">MOTION</button>
+        <button role="tab" aria-selected="false" data-tab="idle" type="button">IDLE</button>
+        <button role="tab" aria-selected="false" data-tab="display" type="button">DISPLAY</button>
+        <button role="tab" aria-selected="false" data-tab="sound" type="button">SOUND</button>
+        <button role="tab" aria-selected="false" data-tab="car" type="button">CAR</button>
+        <button role="tab" aria-selected="false" data-tab="tools" type="button">TOOLS</button>
+        <button role="tab" aria-selected="false" data-tab="update" type="button">UPDATE</button>
+      </div>
+
+      <div class="panel" data-panel="motion" id="pMotion"></div>
+      <div class="panel hidden" data-panel="idle" id="pIdle"></div>
+      <div class="panel hidden" data-panel="display" id="pDisplay"></div>
+      <div class="panel hidden" data-panel="sound" id="pSound"></div>
+      <div class="panel hidden" data-panel="car" id="pCar">
+        <div class="row">
+          <div class="top"><label>ENGINE</label><span class="val" id="engState">--</span></div>
+          <div class="note">Set ENGINE-ON VIBRATION a little above what you see with the engine off,
+            and below what you see at idle.</div>
+        </div>
+        <div class="row" id="bdayRow" style="border-top:1px solid var(--line);padding-top:12px">
+          <div class="top"><label>BIRTHDAY DATE</label><span class="val" id="bdayVal">NOT SET</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="bdayMon" class="lockable" style="flex:1 1 120px">
+              <option value="0">-- MONTH --</option>
+              <option value="1">JAN</option><option value="2">FEB</option><option value="3">MAR</option>
+              <option value="4">APR</option><option value="5">MAY</option><option value="6">JUN</option>
+              <option value="7">JUL</option><option value="8">AUG</option><option value="9">SEP</option>
+              <option value="10">OCT</option><option value="11">NOV</option><option value="12">DEC</option>
+            </select>
+            <select id="bdayDay" class="lockable" style="flex:1 1 100px">
+              <option value="0">-- DAY --</option>
+            </select>
+            <button id="btnBday" class="yellow lockable" type="button">SET</button>
+            <button id="btnBdayClear" class="pink lockable" type="button">CLEAR</button>
+          </div>
+          <div class="note">Otto wears a party hat all day on the matching date, whatever year.</div>
+        </div>
+      </div>
+      <div class="panel hidden" data-panel="update">
+        <div class="row">
+          <div class="top"><label for="fwFile">FIRMWARE FILE (.bin)</label><span class="val" id="fwPct">--</span></div>
+          <input id="fwFile" type="file" accept=".bin" style="font-family:'VT323',monospace;font-size:18px;color:var(--teal)">
+          <div style="height:14px;border:1.5px solid var(--teal-dim);background:var(--deep)"><div id="fwBar" style="height:100%;width:0;background:var(--teal)"></div></div>
+          <div class="note" id="fwStatus">Build with "pio run". The file is .pio/build/otto/firmware.bin. Takes about 3 minutes; keep this page open and the car parked.</div>
+        </div>
+        <div class="btnrow">
+          <button id="btnFw" class="yellow" type="button" disabled>UPLOAD</button>
+          <button id="btnFwStop" class="pink" type="button" disabled>CANCEL</button>
+        </div>
+      </div>
+      <div class="panel hidden" data-panel="tools">
+        <div class="row">
+          <div class="top"><label for="faceSel">FACE TEST</label></div>
+          <div class="btnrow">
+            <select id="faceSel" class="lockable"></select>
+            <button id="btnFace" class="lockable" type="button">SHOW</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="top"><label>DRIVE LOG</label><span class="note" id="logInfo">not loaded</span></div>
+          <div class="btnrow">
+            <button id="btnLog" class="yellow" type="button">FETCH DRIVE LOG</button>
+            <button id="btnCsv" type="button" disabled>SAVE CSV</button>
+            <button id="btnResetPeaks" class="pink lockable" type="button">RESET PEAKS</button>
+          </div>
+          <div class="chartbox"><canvas id="chart" width="900" height="260" role="img" aria-label="Drive log chart"></canvas></div>
+          <div class="legend"><span style="color:var(--pink)">— BRAKE</span><span style="color:var(--teal)">— ACCEL</span><span style="color:var(--yellow)">— CORNER</span><span>dashed = your thresholds</span></div>
+        </div>
+        <div class="row">
+          <div class="top"><label>IDLE VIBRATION</label><span class="note" id="vibInfo">not captured</span></div>
+          <div class="note">Warm idle, pod mounted, car stopped, music off. Captures ~2.3 s (the face freezes
+            meanwhile). Look for a firing peak (V8: RPM / 15 Hz, ~47 Hz at 700 rpm) and the half-order
+            band (firing / 8, misfire roughness).</div>
+          <div class="btnrow">
+            <button id="btnVib" class="yellow" type="button">CAPTURE</button>
+            <button id="btnVibCsv" type="button" disabled>SAVE CSV</button>
+          </div>
+          <div class="chartbox"><canvas id="vibChart" width="900" height="260" role="img" aria-label="Vibration spectrum, 0 to 120 Hz"></canvas></div>
+          <div class="note" id="vibText"></div>
+        </div>
+        <div class="row">
+          <div class="top"><label for="cmdLine">COMMAND</label></div>
+          <div class="btnrow">
+            <input id="cmdLine" type="text" placeholder="e.g. answer LONDON|09:26|+8 HRS">
+            <button id="btnCmd" type="button">SEND</button>
+            <button id="btnResetAll" class="pink lockable" type="button">RESET SETTINGS</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="stripe"></div>
+  <footer><span>SRC: TUNER</span><span id="msg"></span><span id="saved" style="color:var(--pink)"></span></footer>
+</div>
+
+<script>
+const SVC = '7f3a0001-5e7a-4c0e-9b1d-4f54544f0000';
+const CMD = '7f3a0002-5e7a-4c0e-9b1d-4f54544f0000';
+const CFG = '7f3a0003-5e7a-4c0e-9b1d-4f54544f0000';
+const TEL = '7f3a0004-5e7a-4c0e-9b1d-4f54544f0000';
+const LOG = '7f3a0005-5e7a-4c0e-9b1d-4f54544f0000';
+const OTA = '7f3a0006-5e7a-4c0e-9b1d-4f54544f0000';
+
+const FACES = [
+  // keep in sync with kNames[] in src/brain.cpp
+  'idle','bored','musicbob','listening','thinking','speaking','happy','sleepy','volume','confused',
+  'answer','braking','turnleft','turnright','accel','bump','dizzy','v8','calibrate','boot','charging',
+  'lowbattery','batterylevel','chargesoon','charged','overheat','sleep','greeting','boop','taphappy',
+  'wobble','startled','pet','grumpy','spinning','menuopening','menulocked','saved','sehrgut',
+  'engineon','rev','launchready','launchrun','launchresult','launchtree','launchgo','launchred',
+  'launchrecord','summary','updating','hotoff','holidaybirthday','holidaynewyear','holidayjuly4',
+  'holidayhalloween','holidaychristmas','guard','missedyou','milestone','breaktime','hotcabin',
+  'coldcabin','showcard','holidaypatent'];
+
+// slider definitions: key, label, min, max, step, format, note
+const SLIDERS = {
+  pMotion: [
+    ['brake', 'BRAKE TRIGGER', 0.10, 0.80, 0.05, v => v.toFixed(2) + ' g', 0],
+    ['accel', 'ACCEL TRIGGER', 0.10, 0.80, 0.05, v => v.toFixed(2) + ' g', 1],
+    ['turn',  'TURN TRIGGER',  10, 60, 1, v => v + '°/s', 3],
+    ['bump',  'BUMP TRIGGER',  0.30, 1.50, 0.05, v => v.toFixed(2) + ' g', 4],
+    ['v8',    'V8 MODE LAUNCH', 0.20, 1.00, 0.05, v => v.toFixed(2) + ' g', 1],
+  ],
+  pIdle: [
+    ['activity', 'IDLE ACTIVITY', 1, 10, 1, v => (v <= 3 ? 'CALM' : v >= 8 ? 'HYPER' : 'NORMAL') + ' · ' + v, 'HOW OFTEN GLANCES, WOBBLES AND YAWNS FIRE'],
+    ['sleepMin', 'SLEEP AFTER PARKED', 1, 15, 1, v => v + ' MIN', 'ONLY WHEN NOTHING IS CONNECTED'],
+  ],
+  pDisplay: [
+    ['dayBri', 'DAY BRIGHTNESS', 10, 100, 5, v => v + '%', 'USED IN DAY MODE'],
+    ['nightBri', 'NIGHT BRIGHTNESS', 5, 100, 5, v => v + '%', '7 PM - 7 AM'],
+    ['glow', 'GLOW INTENSITY', 0, 100, 5, v => v + '%', 'NEON BLOOM AROUND LINES'],
+  ],
+  pSound: [
+    ['volume', 'VOLUME', 0, 100, 5, v => v + '%', 'GREETINGS AND CHIRPS'],
+  ],
+  pCar: [
+    ['engineVib', 'ENGINE-ON VIBRATION', 0.002, 0.05, 0.001, v => v.toFixed(3) + ' g', 'NOW --'],
+    ['revRatio', 'REV SENSITIVITY', 1.3, 4.0, 0.1, v => v.toFixed(1) + 'x IDLE', 'LOWER = SMALLER BLIPS COUNT'],
+    ['hotOffC', 'HEAT CUTOFF', 50, 80, 1, v => v + '°C', 'SLEEPS ABOVE THIS, RECHECKS EVERY 5 MIN'],
+    ['hotC', 'HOT CABIN FACE', 25, 60, 1, v => v + '°C', 'ON WAKE, BOARD TEMP ABOVE THIS'],
+    ['coldC', 'COLD CABIN FACE', -20, 20, 1, v => v + '°C', 'ON WAKE, BOARD TEMP BELOW THIS'],
+    ['showMin', 'CAR SHOW TIME', 10, 240, 10, v => v + ' MIN', 'SHOW MODE TURNS ITSELF OFF AFTER'],
+  ],
+};
+const TOGGLES = {
+  pIdle: [['v8On', 'V8 MODE'], ['bobOn', 'MUSIC BOB'], ['boredOn', 'BORED AT LIGHTS'], ['yawnOn', 'YAWNS AT NIGHT']],
+  pDisplay: [],
+  pSound: [['greetOn', 'GERMAN WAKE GREETINGS']],
+  pCar: [['revOn', 'REV REACTIONS'], ['launchOn', 'AUTO 0-60 TIMING'], ['treePro', 'PRO TREE (ALL AMBERS, .400)'], ['voiceOn', 'VOICE COMMANDS ("HI ESP")'], ['guardOn', 'GUARD MODE (BUMPS WHILE PARKED)'],
+         ['breakOn', 'BREAK REMINDER (2 H)'], ['cabinOn', 'HOT / COLD CABIN FACES'], ['milestoneOn', 'MILESTONES + MISSED YOU'], ['summaryOn', 'DRIVE SUMMARY'],
+         ['touchWake', 'TOUCH WAKES OTTO'], ['motionWake', 'MOTION WAKES OTTO'],
+         ['holidaysOn', 'HOLIDAY SCREENS']],
+};
+const PEAK_KEYS = ['brake', 'accel', 'lat', 'yaw', 'bump'];
+
+let dev = null, chCmd = null, chCfg = null, chTel = null, chLog = null, chOta = null;
+let otaCancel = false;
+const msgWaiters = [];
+function waitMsg(prefix, ms) {
+  return new Promise((resolve, reject) => {
+    const w = { prefix, resolve };
+    msgWaiters.push(w);
+    setTimeout(() => { const i = msgWaiters.indexOf(w); if (i >= 0) { msgWaiters.splice(i, 1); reject(new Error('no reply from Otto')); } }, ms);
+  });
+}
+let cfg = {}, telem = null, lastMove = 0, logRecs = [], logExpect = 0;
+const pending = {}; let pendTimer = null;
+const $ = id => document.getElementById(id);
+
+function msg(t) { $('msg').textContent = t; }
+
+// ---------------------------------------------------------------- UI build
+function buildPanels() {
+  for (const [pid, rows] of Object.entries(SLIDERS)) {
+    const p = $(pid);
+    for (const [key, label, min, max, step, fmt, note] of rows) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `<div class="top"><label for="s_${key}">${label}</label><span class="val" id="v_${key}">--</span></div>
+        <input class="lockable" id="s_${key}" type="range" min="${min}" max="${max}" step="${step}">
+        <div class="note" id="n_${key}"></div>`;
+      p.appendChild(row);
+      const input = row.querySelector('input');
+      input.addEventListener('input', () => {
+        const v = parseFloat(input.value);
+        $('v_' + key).textContent = fmt(v);
+        queueCfg(key, v);
+      });
+      row.dataset.fmt = '';
+      input._fmt = fmt;
+      $('n_' + key).textContent = typeof note === 'string' ? note : '';
+      $('n_' + key).dataset.peak = typeof note === 'number' ? note : '';
+    }
+  }
+  for (const [pid, list] of Object.entries(TOGGLES)) {
+    const wrap = document.createElement('div');
+    wrap.className = 'toggles';
+    for (const [key, label] of list) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'toggle lockable'; b.id = 't_' + key;
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = `<span>${label}</span><span>OFF</span>`;
+      b.addEventListener('click', () => {
+        const on = b.getAttribute('aria-pressed') !== 'true';
+        setToggle(key, on);
+        queueCfg(key, on);
+      });
+      wrap.appendChild(b);
+    }
+    $(pid).appendChild(wrap);
+  }
+  const s = $('pSound');
+  const br = document.createElement('div');
+  br.className = 'btnrow';
+  br.innerHTML = `<button id="btnGreet" type="button">PLAY A GREETING</button><button id="btnBoop" type="button">BOOP</button>`;
+  s.appendChild(br);
+  $('btnGreet').onclick = () => send('greet');
+  $('btnBoop').onclick = () => send('boop');
+
+  const c = $('pCar');
+  const cr = document.createElement('div');
+  cr.className = 'row';
+  cr.innerHTML = `<div class="top"><label>0-60</label><span class="val" id="best060">BEST --</span></div>
+    <div class="note">Otto has no speed source, so this times your reaction off the tree (R/T) and peak g only. Use it somewhere safe and legal, like a track day.</div>
+    <div class="btnrow"><button id="btnArm" class="yellow lockable" type="button">ARM 0-60</button>
+    <button id="btnBestReset" class="pink lockable" type="button">RESET BEST</button>
+    <button id="btnSummary" class="lockable" type="button">SHOW DRIVE SUMMARY</button></div>`;
+  c.appendChild(cr);
+  $('btnArm').onclick = () => send('launch arm');
+  $('btnBestReset').onclick = () => send('launch resetbest');
+  $('btnSummary').onclick = () => send('summary');
+
+  $('bdayMon').addEventListener('change', () => populateDaySelect(parseInt($('bdayMon').value) || 0));
+
+  $('btnBday').onclick = () => {
+    const m = parseInt($('bdayMon').value) || 0;
+    const d = parseInt($('bdayDay').value) || 0;
+    if (!m || !d) { alert('Pick a month and day first.'); return; }
+    send(`birthday ${m} ${d}`);
+    cfg.birthdayMonth = m; cfg.birthdayDay = d;
+    updateBdayDisplay();
+  };
+
+  $('btnBdayClear').onclick = () => {
+    send('birthday clear');
+    cfg.birthdayMonth = 0; cfg.birthdayDay = 0;
+    updateBdayDisplay();
+  };
+
+  const sel = $('faceSel');
+  for (const f of FACES) { const o = document.createElement('option'); o.value = o.textContent = f; sel.appendChild(o); }
+}
+
+function setToggle(key, on) {
+  const b = $('t_' + key);
+  if (!b) return;
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  b.lastElementChild.textContent = on ? 'ON' : 'OFF';
+}
+
+const MONTHS = ['','JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+function populateDaySelect(mon) {
+  const days = [0,31,28,31,30,31,30,31,31,30,31,30,31];
+  const sel = $('bdayDay'), old = parseInt(sel.value) || 0;
+  sel.innerHTML = '<option value="0">-- DAY --</option>';
+  for (let d = 1; d <= (days[mon] || 31); d++) {
+    const o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    sel.appendChild(o);
+  }
+  sel.value = (old >= 1 && old <= (days[mon] || 31)) ? old : 0;
+}
+
+function updateBdayDisplay() {
+  const m = parseInt(cfg.birthdayMonth) || 0, d = parseInt(cfg.birthdayDay) || 0;
+  $('bdayVal').textContent = (m && d) ? `${MONTHS[m]} ${d}` : 'NOT SET';
+  $('bdayMon').value = m;
+  populateDaySelect(m);
+  $('bdayDay').value = d;
+}
+
+function applyCfgToUi() {
+  for (const rows of Object.values(SLIDERS)) {
+    for (const [key] of rows) {
+      const i = $('s_' + key);
+      if (cfg[key] === undefined || !i) continue;
+      i.value = cfg[key];
+      $('v_' + key).textContent = i._fmt(parseFloat(cfg[key]));
+    }
+  }
+  for (const list of Object.values(TOGGLES)) for (const [key] of list) setToggle(key, !!cfg[key]);
+  updateBdayDisplay();
+}
+
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b ? 'true' : 'false'));
+  document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab));
+}));
+
+// ------------------------------------------------------------------ BLE
+const enc = new TextEncoder(), dec = new TextDecoder();
+
+async function send(text) {
+  if (!chCmd) return;
+  try { await chCmd.writeValueWithResponse(enc.encode(text)); }
+  catch (e) { msg('send failed: ' + e.message); }
+}
+
+function queueCfg(key, val) {
+  pending[key] = val;
+  cfg[key] = val;
+  clearTimeout(pendTimer);
+  pendTimer = setTimeout(flushCfg, 250);
+}
+async function flushCfg() {
+  if (!chCfg) return;
+  const body = JSON.stringify(pending);
+  for (const k of Object.keys(pending)) delete pending[k];
+  try { await chCfg.writeValueWithResponse(enc.encode(body)); $('saved').textContent = 'SAVED TO DEVICE'; }
+  catch (e) { msg('save failed: ' + e.message); }
+}
+
+async function connect() {
+  if (!navigator.bluetooth) { $('nobt').classList.remove('hidden'); return; }
+  try {
+    dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }, { namePrefix: 'OTTO' }], optionalServices: [SVC] });
+    dev.addEventListener('gattserverdisconnected', onDisconnected);
+    $('conn').textContent = 'CONNECTING…';
+    const server = await dev.gatt.connect();
+    const svc = await server.getPrimaryService(SVC);
+    chCmd = await svc.getCharacteristic(CMD);
+    chCfg = await svc.getCharacteristic(CFG);
+    chTel = await svc.getCharacteristic(TEL);
+    chLog = await svc.getCharacteristic(LOG);
+    try { chOta = await svc.getCharacteristic(OTA); } catch { chOta = null; }   // older firmware has no OTA
+    chTel.addEventListener('characteristicvaluechanged', onTelem);
+    await chTel.startNotifications();
+    chLog.addEventListener('characteristicvaluechanged', onLog);
+    await chLog.startNotifications();
+    await send('hello tuner');
+    const now = Math.floor(Date.now() / 1000), tz = -new Date().getTimezoneOffset();
+    await send(`time ${now} ${tz}`);
+    cfg = JSON.parse(dec.decode(await chCfg.readValue()));
+    applyCfgToUi();
+    $('conn').textContent = 'LINKED // ' + (dev.name || 'OTTO');
+    $('conn').style.color = 'var(--teal)';
+    $('btnConnect').disabled = true; $('btnDisconnect').disabled = false;
+    msg('connected · clock synced');
+    $('btnFw').disabled = !$('fwFile').files.length;
+  } catch (e) {
+    msg(e.message);
+    $('conn').textContent = 'NOT CONNECTED';
+  }
+}
+
+function onDisconnected() {
+  chCmd = chCfg = chTel = chLog = chOta = null;
+  $('conn').textContent = 'NOT CONNECTED'; $('conn').style.color = 'var(--pink)';
+  $('btnConnect').disabled = false; $('btnDisconnect').disabled = true;
+  msg('disconnected');
+}
+
+function onTelem(ev) {
+  let j;
+  try { j = JSON.parse(dec.decode(ev.target.value)); } catch { return; }
+  if (j.vsh) { vib = { bin: j.vsh[0], n: j.vsh[1], amp: new Array(j.vsh[1]).fill(0), got: 0 }; return; }
+  if (j.vs && vib) {
+    for (let i = 1; i < j.vs.length; i++) vib.amp[j.vs[0] + i - 1] = j.vs[i];
+    vib.got += j.vs.length - 1;
+    drawVib();
+    if (vib.got >= vib.n) { $('vibInfo').textContent = 'captured ' + new Date().toLocaleTimeString(); $('btnVibCsv').disabled = false; }
+    return;
+  }
+  if (j.msg && j.msg.startsWith('vibcap:')) {
+    vibLines.push(j.msg.slice(8));
+    $('vibText').textContent = vibLines.join('  ·  ');
+    const m = j.msg.match(/firing ([\d.]+) Hz/);
+    if (m) vibFire = parseFloat(m[1]);
+  }
+  if (j.msg) {
+    msg(j.msg);
+    for (let i = msgWaiters.length - 1; i >= 0; i--) {
+      if (j.msg.startsWith(msgWaiters[i].prefix)) { msgWaiters[i].resolve(j.msg); msgWaiters.splice(i, 1); }
+    }
+    return;
+  }
+  telem = j;
+  if (j.vib !== undefined) {
+    $('n_engineVib').textContent = 'NOW ' + j.vib.toFixed(3) + ' g';
+    $('engState').textContent = j.eng ? 'RUNNING' : 'OFF';
+    $('best060').textContent = j.best > 0 ? 'BEST ' + j.best.toFixed(1) + ' S' : 'BEST --';
+  }
+  $('sBat').textContent = j.bat + '%';
+  $('sTemp').textContent = j.tc + '°C';
+  if ($('sCab')) $('sCab').textContent = (j.cab > -90) ? j.cab + '°C · ' + j.rh + '%' : '--';
+  $('sExpr').textContent = String(j.ex).toUpperCase();
+  $('sCal').textContent = j.cal ? 'YES' : 'NO';
+  $('sChg').textContent = j.chg ? 'YES' : 'NO';
+  $('sCal').textContent = j.cal ? 'OK' : 'NEEDED';
+  $('gnow').textContent = Math.hypot(j.lon, j.lat).toFixed(2);
+  if (Math.abs(j.lon) > 0.1 || Math.abs(j.lat) > 0.1 || Math.abs(j.yaw) > 8) lastMove = Date.now();
+  // peak notes under motion sliders
+  for (const [key, , , , , fmt, pk] of SLIDERS.pMotion) {
+    const p = j.pk[pk];
+    $('n_' + key).textContent = 'LAST DRIVE PEAK ' + (key === 'turn' ? Math.round(j.pk[3]) + '°/s' : p.toFixed(2) + ' g');
+  }
+  drawMeter();
+}
+
+function onLog(ev) {
+  const v = ev.target.value;
+  const b = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  if (b.length === 8 && b[0] === 76 && b[1] === 79 && b[2] === 71) {   // "LOG"
+    logRecs = []; logExpect = v.getUint32(4, true);
+    $('logInfo').textContent = `receiving 0 / ${logExpect}`;
+    return;
+  }
+  if (b.length === 3 && b[0] === 69 && b[1] === 78 && b[2] === 68) {   // "END"
+    $('logInfo').textContent = `${logRecs.length} seconds of data`;
+    $('btnCsv').disabled = logRecs.length === 0;
+    drawChart();
+    return;
+  }
+  for (let o = 0; o + 10 <= b.length; o += 10) {
+    logRecs.push({
+      brake: v.getUint16(o, true) / 1000, accel: v.getUint16(o + 2, true) / 1000, lat: v.getUint16(o + 4, true) / 1000,
+      yaw: v.getUint16(o + 6, true) / 10, bump: v.getUint16(o + 8, true) / 1000,
+    });
+  }
+  $('logInfo').textContent = `receiving ${logRecs.length} / ${logExpect}`;
+}
+
+// ---------------------------------------------------------------- drawing
+function drawMeter() {
+  const c = $('gmeter'), x = c.getContext('2d'), W = c.width, cx = W / 2, cy = W / 2, R = W / 2 - 8;
+  const css = getComputedStyle(document.documentElement);
+  const col = n => css.getPropertyValue(n).trim();
+  const scale = R / 0.8;  // outer ring = 0.8 g
+  x.clearRect(0, 0, W, W);
+  x.fillStyle = col('--deep'); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fill();
+  x.strokeStyle = col('--line'); x.lineWidth = 1.5;
+  for (const g of [0.2, 0.4, 0.6]) { x.beginPath(); x.arc(cx, cy, g * scale, 0, 7); x.stroke(); }
+  x.beginPath(); x.moveTo(cx, cy - R); x.lineTo(cx, cy + R); x.moveTo(cx - R, cy); x.lineTo(cx + R, cy); x.stroke();
+  x.strokeStyle = col('--teal-dim'); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.stroke();
+  x.fillStyle = col('--gray'); x.font = '16px VT323, monospace'; x.textAlign = 'center';
+  x.fillText('BRAKE', cx, 22); x.fillText('ACCEL', cx, W - 12);
+  if (!telem) return;
+  const [pb, pa, pl] = telem.pk;
+  x.strokeStyle = col('--yellow'); x.fillStyle = 'rgba(244,220,75,.08)'; x.lineWidth = 2;
+  x.beginPath();
+  x.moveTo(cx, cy - pb * scale); x.lineTo(cx + pl * scale, cy); x.lineTo(cx, cy + pa * scale); x.lineTo(cx - pl * scale, cy);
+  x.closePath(); x.fill(); x.stroke();
+  // live dot: braking up, accel down, left turn left
+  const px = cx - telem.lat * scale, py = cy + telem.lon * scale;
+  x.fillStyle = col('--pink'); x.shadowColor = col('--pink'); x.shadowBlur = 10;
+  x.beginPath(); x.arc(px, py, 7, 0, 7); x.fill(); x.shadowBlur = 0;
+}
+
+function drawChart() {
+  const c = $('chart'), x = c.getContext('2d');
+  const n = logRecs.length;
+  c.width = Math.max(900, Math.min(6000, n * 2));
+  const W = c.width, H = c.height, pad = 28;
+  const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
+  x.fillStyle = col('--deep'); x.fillRect(0, 0, W, H);
+  const maxG = 1.0, yOf = g => H - pad - (g / maxG) * (H - 2 * pad);
+  x.strokeStyle = col('--line'); x.lineWidth = 1; x.fillStyle = col('--gray'); x.font = '15px VT323, monospace';
+  for (const g of [0, 0.25, 0.5, 0.75, 1]) { x.beginPath(); x.moveTo(pad, yOf(g)); x.lineTo(W, yOf(g)); x.stroke(); x.fillText(g.toFixed(2), 2, yOf(g) + 4); }
+  if (!n) return;
+  const xOf = i => pad + (i / Math.max(1, n - 1)) * (W - pad - 6);
+  const line = (key, color) => {
+    x.strokeStyle = color; x.lineWidth = 1.5; x.beginPath();
+    logRecs.forEach((r, i) => { const px = xOf(i), py = yOf(Math.min(maxG, r[key])); i ? x.lineTo(px, py) : x.moveTo(px, py); });
+    x.stroke();
+  };
+  line('brake', col('--pink')); line('accel', col('--teal')); line('lat', col('--yellow'));
+  x.setLineDash([6, 6]); x.lineWidth = 1;
+  for (const [k, color] of [['brake', '--pink'], ['accel', '--teal']]) {
+    if (cfg[k] === undefined) continue;
+    x.strokeStyle = col(color); x.beginPath(); x.moveTo(pad, yOf(cfg[k])); x.lineTo(W, yOf(cfg[k])); x.stroke();
+  }
+  x.setLineDash([]);
+}
+
+// ------------------------------------------------------------- firmware update
+async function uploadFirmware() {
+  const file = $('fwFile').files[0];
+  if (!file || !chCmd) return;
+  if (!chOta) { $('fwStatus').textContent = 'This Otto firmware has no wireless update yet. Flash once over USB first.'; return; }
+  const buf = new Uint8Array(await file.arrayBuffer());
+  otaCancel = false;
+  $('btnFw').disabled = true; $('btnFwStop').disabled = false;
+  const t0 = Date.now();
+  try {
+    $('fwStatus').textContent = 'starting…';
+    send(`ota begin ${buf.length}`);
+    const r = await waitMsg('ota ', 8000);
+    if (!r.startsWith('ota ready')) throw new Error(r);
+    const CH = 240;
+    for (let o = 0; o < buf.length; o += CH) {
+      if (otaCancel) { await send('ota abort'); throw new Error('cancelled'); }
+      await chOta.writeValueWithResponse(buf.slice(o, o + CH));
+      if ((o / CH) % 16 === 0 || o + CH >= buf.length) {
+        const p = Math.min(1, (o + CH) / buf.length);
+        $('fwBar').style.width = (p * 100).toFixed(1) + '%';
+        $('fwPct').textContent = Math.round(p * 100) + '%';
+        const el = (Date.now() - t0) / 1000, eta = p > 0.02 ? el / p - el : 0;
+        $('fwStatus').textContent = `sending… ${Math.round(eta)} s left`;
+      }
+    }
+    send('ota end');
+    const e = await waitMsg('ota ', 15000);
+    if (!e.startsWith('ota ok')) throw new Error(e);
+    $('fwStatus').textContent = 'done. Otto is restarting; reconnect in a few seconds.';
+  } catch (err) {
+    $('fwStatus').textContent = 'update failed: ' + err.message + ' (Otto keeps its old firmware)';
+  } finally {
+    $('btnFw').disabled = !chCmd; $('btnFwStop').disabled = true;
+  }
+}
+
+function saveCsv() {
+  const rows = ['second,brake_g,accel_g,lateral_g,yaw_dps,bump_g'];
+  logRecs.forEach((r, i) => rows.push([i, r.brake, r.accel, r.lat, r.yaw, r.bump].join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
+  a.download = 'otto-drive-log.csv';
+  a.click();
+}
+
+// lock tuning while the car is moving (based on live telemetry)
+setInterval(() => {
+  const moving = Date.now() - lastMove < 3000;
+  $('lock').classList.toggle('on', moving);
+  document.querySelectorAll('.lockable').forEach(el => { el.disabled = moving || !chCmd; });
+}, 300);
+
+// ------------------------------------------------------------------ wiring
+buildPanels();
+drawMeter();
+drawChart();
+if (!navigator.bluetooth) $('nobt').classList.remove('hidden');
+$('btnConnect').onclick = connect;
+$('btnDisconnect').onclick = () => dev && dev.gatt.connected && dev.gatt.disconnect();
+$('btnCal').onclick = () => { send('calibrate'); msg('hold the car still for 2 seconds'); };
+$('btnFlip').onclick = () => send('flipfwd');
+$('btnFace').onclick = () => send('expr ' + $('faceSel').value + ' 4000');
+$('btnLog').onclick = () => { if (chCmd) { $('logInfo').textContent = 'requesting…'; send('log'); } };
+$('btnCsv').onclick = saveCsv;
+$('btnResetPeaks').onclick = () => send('resetpeaks');
+
+// ---- idle vibration (vibcap) ----
+let vib = null, vibLines = [], vibFire = 0;
+function drawVib() {
+  const c = $('vibChart'), g = c.getContext('2d'), W = c.width, H = c.height, L = 46, B = 28;
+  g.fillStyle = '#0d1117'; g.fillRect(0, 0, W, H);
+  if (!vib) return;
+  const fmax = (vib.n - 1) * vib.bin, top = Math.max(1, ...vib.amp.slice(Math.ceil(3 / vib.bin)));
+  const X = f => L + (W - L - 10) * f / fmax, Y = a => H - B - (H - B - 10) * Math.min(1, a / top);
+  g.strokeStyle = '#2f3a47'; g.fillStyle = '#9aa7b6'; g.font = '16px monospace'; g.lineWidth = 1;
+  for (let f = 0; f <= fmax; f += 20) { g.beginPath(); g.moveTo(X(f), 10); g.lineTo(X(f), H - B); g.stroke(); g.fillText(f + ' Hz', X(f) - 14, H - 8); }
+  g.fillText(top.toFixed(1) + ' mg', 2, 20);
+  if (vibFire) {                                    // firing peak and half-order band
+    g.fillStyle = 'rgba(255,106,162,0.15)';
+    g.fillRect(X(vibFire / 8 * 0.85), 10, X(vibFire / 8 * 1.15) - X(vibFire / 8 * 0.85), H - B - 10);
+    g.strokeStyle = '#f4dc4b'; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(X(vibFire), 10); g.lineTo(X(vibFire), H - B); g.stroke(); g.setLineDash([]);
+  }
+  g.strokeStyle = '#7cc8ff'; g.lineWidth = 2; g.beginPath();
+  vib.amp.forEach((a, k) => { const x = X(k * vib.bin), y = Y(a); k ? g.lineTo(x, y) : g.moveTo(x, y); });
+  g.stroke();
+}
+$('btnVib').onclick = () => {
+  vib = null; vibLines = []; vibFire = 0; $('vibText').textContent = ''; $('vibInfo').textContent = 'capturing...';
+  $('btnVibCsv').disabled = true; drawVib(); send('vibcap');
+};
+$('btnVibCsv').onclick = () => {
+  if (!vib) return;
+  const rows = ['hz,mg'].concat(vib.amp.map((a, k) => (k * vib.bin).toFixed(2) + ',' + a));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
+  a.download = 'otto-vibcap-' + new Date().toISOString().slice(0, 19).replace(/:/g, '') + '.csv';
+  a.click();
+};
+drawVib();
+$('btnResetAll').onclick = async () => {
+  if (!confirm('Reset all tuning settings to defaults? (mount calibration is kept)')) return;
+  await send('reset');
+  cfg = JSON.parse(dec.decode(await chCfg.readValue()));
+  applyCfgToUi();
+};
+$('btnCmd').onclick = () => { const v = $('cmdLine').value.trim(); if (v) send(v); };
+$('fwFile').addEventListener('change', () => { $('btnFw').disabled = !chCmd || !$('fwFile').files.length; });
+$('btnFw').onclick = uploadFirmware;
+$('btnFwStop').onclick = () => { otaCancel = true; };
+$('cmdLine').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnCmd').click(); });
+</script>
+</body>
+</html>

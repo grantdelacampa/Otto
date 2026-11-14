@@ -1,0 +1,12 @@
+# OTTO: 16 MB flash with room for the ESP-SR speech models (Espressif esp_sr_16 layout).
+# app 3 MB x2 (OTA), LittleFS 7 MB (voice clips), model 2.9 MB (srmodels.bin, see README).
+# model is subtype "undefined", NOT spiffs: `pio run -t uploadfs` writes to the LAST spiffs partition
+# and would wipe the speech models. ESP-SR finds the model partition by its label.
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,       0x9000,   0x5000,
+otadata,  data, ota,       0xe000,   0x2000,
+app0,     app,  ota_0,    0x10000, 0x300000,
+app1,     app,  ota_1,   0x310000, 0x300000,
+spiffs,   data, spiffs,  0x610000, 0x700000,
+model,    data, undefined,0xD10000, 0x2E0000,
+coredump, data, coredump,0xFF0000,  0x10000,

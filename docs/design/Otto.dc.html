@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Otto companion</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&amp;family=VT323&amp;display=swap">
+<style>
+body{margin:0;background:#1b2029}
+a{color:#7cc8ff}a:hover{color:#ff6aa2}
+.glows{filter:drop-shadow(0 0 5px rgba(214,222,232,.45))}
+.glowi{filter:drop-shadow(0 0 5px rgba(124,200,255,.6))}
+.glowy{filter:drop-shadow(0 0 5px rgba(244,220,75,.6))}
+@keyframes pump{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.pump{animation:pump 2.6s ease-in-out infinite}
+.pumpfast{animation:pump .3s ease-in-out infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
+.blink{animation:blink 5s infinite;transform-box:fill-box;transform-origin:center}
+@keyframes twinkle{0%,100%{opacity:.2;transform:scale(.6)}50%{opacity:1;transform:scale(1)}}
+.twinkle{animation:twinkle 1.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.t2{animation-delay:.6s}
+</style>
+</helmet>
+<div style="width: 1200px; height: 720px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; gap: 24px; background: #1b2029; font-family: 'Chakra Petch', sans-serif; color: #d6dee8">
+<div style="display: flex; align-items: flex-end; justify-content: space-between">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-family: 'VT323', monospace; font-size: 22px; color: #ff6aa2; letter-spacing: 2px">FRIEND 02 · OPTION A // 1997 MERCEDES-BENZ E420</div>
+<h1 style="margin: 0; font-size: 48px; font-weight: 700; letter-spacing: 4px; color: #d6dee8">OTTO</h1>
+</div>
+<div style="font-family: 'VT323', monospace; font-size: 22px; color: #7cc8ff; letter-spacing: 1px">4.2L V8 // FOUR-STROKE // UNFLAPPABLE</div>
+</div>
+<div style="height: 6px; background: repeating-linear-gradient(90deg,#7cc8ff 0 26px,transparent 26px 40px)"></div>
+<div style="display: flex; gap: 40px; flex-grow: 1">
+<div style="width: 440px; display: flex; flex-direction: column; gap: 16px">
+<div style="background: #11151b; border: 2px solid #3a4452; border-radius: 50%; width: 400px; height: 400px; margin: 0 auto; box-sizing: border-box; padding: 26px; display: flex">
+<div style="flex-grow: 1; background: #0d1117; border: 1.5px solid {{body}}; border-radius: 50%; display: flex; align-items: center; justify-content: center">
+<svg role="img" aria-label="Otto idle: a piston with a calm face and a connecting rod, pumping slowly inside its cylinder" viewBox="0 0 200 168" style="width: 300px; height: 252px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g class="pump"><g class="glows" fill="none" stroke="{{body}}" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 136 L103 136 L106 102" stroke-width="4"></path><circle cx="100" cy="146" r="10" stroke-width="4"></circle><line x1="94" y1="90" x2="106" y2="90" stroke-width="3"></line></g>
+<g stroke="{{eye}}" stroke-width="3" stroke-linecap="round"><line x1="82" y1="66" x2="94" y2="66"></line><line x1="106" y1="66" x2="118" y2="66"></line></g>
+<g class="glowi blink" fill="{{eye}}"><circle cx="88" cy="77" r="5.5"></circle><circle cx="112" cy="77" r="5.5"></circle></g></g>
+</svg>
+</div>
+</div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; color: #9aa7b6; line-height: 1.3">1.85in 360×360 round · same firmware as Rotor<br>The piston pumps slowly at idle; Rotor spins, Otto strokes.<br>German greetings: Guten Morgen! · Los geht's!</div>
+</div>
+<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="background: #0d1117; border: 1.5px solid #2f3a47; border-radius: 6px; padding: 10px"><svg role="img" aria-label="Idle" viewBox="0 0 200 168" style="width: 100%; height: 150px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g class="glows" fill="none" stroke="{{body}}" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 136 L103 136 L106 102" stroke-width="4"></path><circle cx="100" cy="146" r="10" stroke-width="4"></circle><line x1="94" y1="90" x2="106" y2="90" stroke-width="3"></line></g>
+<g stroke="{{eye}}" stroke-width="3" stroke-linecap="round"><line x1="82" y1="66" x2="94" y2="66"></line><line x1="106" y1="66" x2="118" y2="66"></line></g>
+<g class="glowi" fill="{{eye}}"><circle cx="88" cy="77" r="5.5"></circle><circle cx="112" cy="77" r="5.5"></circle></g>
+</svg></div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; display: flex; justify-content: space-between"><span style="color: #d6dee8">IDLE</span><span style="color: #9aa7b6">0x00</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="background: #0d1117; border: 1.5px solid #2f3a47; border-radius: 6px; padding: 10px"><svg role="img" aria-label="Hard braking: Otto disapproves, one eyebrow raised, eyes half-lidded, ahem" viewBox="0 0 200 168" style="width: 100%; height: 150px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g class="glows" fill="none" stroke="{{body}}" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 136 L103 136 L106 102" stroke-width="4"></path><circle cx="100" cy="146" r="10" stroke-width="4"></circle><path d="M93 91 Q100 88 107 91" stroke-width="3"></path></g>
+<g stroke="{{eye}}" stroke-width="3" stroke-linecap="round" fill="none"><path d="M81 64 Q88 56 95 62"></path><line x1="106" y1="70" x2="118" y2="70"></line></g>
+<g class="glowi" fill="{{eye}}"><circle cx="88" cy="77" r="5.5"></circle><ellipse cx="112" cy="78" rx="5.5" ry="2.6"></ellipse></g>
+<text x="148" y="40" fill="#7cc8ff" style="font-family: 'VT323', monospace; font-size: 22px">AHEM.</text>
+</svg></div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; display: flex; justify-content: space-between"><span style="color: #d6dee8">DISAPPROVES</span><span style="color: #9aa7b6">0x01</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="background: #0d1117; border: 1.5px solid #2f3a47; border-radius: 6px; padding: 10px"><svg role="img" aria-label="Launch: Otto pumps hard with determined eyebrows" viewBox="0 0 200 168" style="width: 100%; height: 150px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g stroke="#7cc8ff" stroke-width="3" stroke-linecap="round" opacity=".8"><line x1="22" y1="50" x2="42" y2="50"></line><line x1="18" y1="66" x2="44" y2="66"></line><line x1="22" y1="82" x2="42" y2="82"></line><line x1="158" y1="50" x2="178" y2="50"></line><line x1="156" y1="66" x2="182" y2="66"></line><line x1="158" y1="82" x2="178" y2="82"></line></g>
+<g class="pumpfast"><g class="glows" fill="none" stroke="{{body}}" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 136 L103 136 L106 102" stroke-width="4"></path><circle cx="100" cy="146" r="10" stroke-width="4"></circle><line x1="93" y1="91" x2="107" y2="91" stroke-width="3"></line></g>
+<g stroke="{{eye}}" stroke-width="3.5" stroke-linecap="round"><line x1="81" y1="63" x2="95" y2="69"></line><line x1="119" y1="63" x2="105" y2="69"></line></g>
+<g class="glowi" fill="{{eye}}"><circle cx="88" cy="78" r="5.5"></circle><circle cx="112" cy="78" r="5.5"></circle></g></g>
+</svg></div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; display: flex; justify-content: space-between"><span style="color: #d6dee8">LAUNCH</span><span style="color: #9aa7b6">0x02</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="background: #0d1117; border: 1.5px solid #2f3a47; border-radius: 6px; padding: 10px"><svg role="img" aria-label="Petted: Otto allows a small, dignified smile" viewBox="0 0 200 168" style="width: 100%; height: 150px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g class="glows" fill="none" stroke="{{body}}" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 136 L103 136 L106 102" stroke-width="4"></path><circle cx="100" cy="146" r="10" stroke-width="4"></circle><path d="M92 88 Q100 95 108 88" stroke-width="3"></path></g>
+<g stroke="{{eye}}" stroke-width="3" stroke-linecap="round"><line x1="82" y1="64" x2="94" y2="64"></line><line x1="106" y1="64" x2="118" y2="64"></line></g>
+<g class="glowi" fill="none" stroke="{{eye}}" stroke-width="4" stroke-linecap="round"><path d="M82 79 Q88 71 94 79"></path><path d="M106 79 Q112 71 118 79"></path></g>
+<path d="M162 56 C162 50 154 48 154 54 C154 59 162 65 162 65 C162 65 170 59 170 54 C170 48 162 50 162 56 Z" fill="#ff6aa2"></path>
+</svg></div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; display: flex; justify-content: space-between"><span style="color: #d6dee8">PETTED</span><span style="color: #9aa7b6">0x03</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="background: #0d1117; border: 1.5px solid #2f3a47; border-radius: 6px; padding: 10px"><svg role="img" aria-label="Sleepy: eyes closed, piston resting at the bottom of its stroke, z's" viewBox="0 0 200 168" style="width: 100%; height: 150px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g transform="translate(0 4)"><g fill="none" stroke="#8a929c" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 132 L103 132 L106 102" stroke-width="4"></path><line x1="95" y1="90" x2="105" y2="90" stroke-width="3"></line></g>
+<g stroke="{{eye}}" stroke-width="4" stroke-linecap="round"><line x1="82" y1="77" x2="94" y2="77"></line><line x1="106" y1="77" x2="118" y2="77"></line></g></g>
+<circle cx="100" cy="146" r="10" fill="none" stroke="#8a929c" stroke-width="4"></circle>
+<text x="150" y="40" fill="#f4dc4b" style="font-family: 'VT323', monospace; font-size: 30px">z</text><text x="164" y="24" fill="#f4dc4b" style="font-family: 'VT323', monospace; font-size: 22px">z</text>
+</svg></div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; display: flex; justify-content: space-between"><span style="color: #d6dee8">SLEEPY</span><span style="color: #9aa7b6">0x04</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="background: #0d1117; border: 1.5px solid #2f3a47; border-radius: 6px; padding: 10px"><svg role="img" aria-label="Sehr gut: Otto approves of a smooth drive, eyes closed in satisfaction, sparkles" viewBox="0 0 200 168" style="width: 100%; height: 150px; display: block">
+<g stroke="#3a4452" stroke-width="3" stroke-linecap="round"><line x1="56" y1="18" x2="56" y2="110"></line><line x1="144" y1="18" x2="144" y2="110"></line></g>
+<circle cx="100" cy="146" r="16" fill="none" stroke="#3a4452" stroke-width="2" stroke-dasharray="3 4"></circle>
+<g fill="#f4dc4b"><path class="twinkle" d="M160 36 L162 42 L168 44 L162 46 L160 52 L158 46 L152 44 L158 42 Z"></path><path class="twinkle t2" d="M36 70 L38 75 L43 77 L38 79 L36 84 L34 79 L29 77 L34 75 Z"></path></g>
+<g class="glows" fill="none" stroke="{{body}}" stroke-linecap="round" stroke-linejoin="round"><rect x="64" y="30" width="72" height="72" rx="10" fill="#0d1117" stroke-width="5"></rect><line x1="67" y1="44" x2="133" y2="44" stroke-width="3" opacity=".55"></line><line x1="67" y1="52" x2="133" y2="52" stroke-width="3" opacity=".55"></line><path d="M94 102 L97 136 L103 136 L106 102" stroke-width="4"></path><circle cx="100" cy="146" r="10" stroke-width="4"></circle><path d="M93 89 Q100 93 107 89" stroke-width="3"></path></g>
+<g stroke="{{eye}}" stroke-width="3" stroke-linecap="round"><line x1="82" y1="64" x2="94" y2="62"></line><line x1="106" y1="62" x2="118" y2="64"></line></g>
+<g class="glowi" fill="none" stroke="{{eye}}" stroke-width="4" stroke-linecap="round"><path d="M82 75 Q88 82 94 75"></path><path d="M106 75 Q112 82 118 75"></path></g>
+</svg></div>
+<div style="font-family: 'VT323', monospace; font-size: 20px; display: flex; justify-content: space-between"><span style="color: #d6dee8">SEHR GUT</span><span style="color: #9aa7b6">0x05</span></div>
+</div>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"body":{"editor":"color","default":"#D6DEE8","options":["#D6DEE8","#7CC8FF","#F4DC4B"]},"eye":{"editor":"color","default":"#7CC8FF","options":["#7CC8FF","#79E8D8","#F4DC4B"]},"$preview":{"width":1200,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+return { body: this.props.body ?? '#D6DEE8', eye: this.props.eye ?? '#7CC8FF' };
+}
+}
+</script>
+</body>
+</html>
