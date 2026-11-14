@@ -24,5 +24,18 @@
       any that don't fit Otto
 - [ ] Mount / enclosure for the 1.46B (Ø ~1.46" active area; Waveshare has a structural drawing in
       Downloads/ESP32-S3-Touch-LCD-1.46_Structural Diagram-With Cover)
-- [ ] Optional: OBD-II speed source feeding `speed <mph>` (full 0-60 timer, trip miles)
 - [ ] Optional: try LCD_QSPI_HZ 80 MHz for a faster frame push (40 MHz works)
+
+## OBD-II (needs an adapter — not bought yet)
+The 1997 E420 has OBD-II (US cars from that year: ISO 9141 K-line, slow — a few readings per second in
+total; check which readings the car supports with mode 01 PID 00 once connected).
+- [ ] Get a **BLE** ELM327 adapter (the ESP32-S3 has no classic Bluetooth): e.g. Vgate iCar Pro BLE,
+      OBDLink CX. Prefer one with auto-sleep so it doesn't drain the car battery when parked.
+- [ ] `obd.*`: NimBLE central next to the tuning-page peripheral; connect + reconnect, ELM327 AT setup
+      (ATZ, ATE0, ATSP0 / ATSP3), poll speed (010D) + rpm (010C) fast, coolant (0105) slowly
+- [ ] Feed what exists: `g_speed` -> full 0-30 / 0-60 + timeslips + trip miles; real engine on/off
+      instead of the vibration guess; rev reactions from rpm; Sehr gut from throttle/speed
+- [ ] New: piston stroke synced to engine rpm (scaled down); warm-up face while coolant is cold, worried
+      face if the car runs hot; check-engine face with the code (mode 03) + list in the menu;
+      rough MPG in the drive summary (MAF 0110 + speed, if supported); shift light at a set rpm
+- [ ] Bench without the car: a fake ELM327 (like tools/fake_gps.py) to test parsing and the faces
