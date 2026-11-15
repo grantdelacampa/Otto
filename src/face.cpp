@@ -207,12 +207,23 @@ static void crankGeometry(float angleDeg, float rest) {
   s_pdy = s_pinY - sqrtf(ROD * ROD - dx * dx) - 102;
 }
 
+// Cheap on purpose (it's redrawn every frame, ~9 ms with smooth strokes): the walls are vertical, so
+// a plain rectangle + round caps looks the same; the crank-case dashes are tiny dim marks, drawn as
+// two triangles each instead of anti-aliased arcs.
 static void drawCylinder() {
-  fLine(SX(56), SY(18), SX(56), SY(110), 3 * K, COL_HOUSING);
-  fLine(SX(144), SY(18), SX(144), SY(110), 3 * K, COL_HOUSING);
+  float hw = FW(3 * K) * 0.5f, y0 = FY(SY(18)), y1 = FY(SY(110));
+  for (float wx : {56.0f, 144.0f}) {
+    float x = FX(SX(wx));
+    canvas.fillRect((int)lroundf(x - hw), (int)lroundf(y0), (int)lroundf(2 * hw), (int)lroundf(y1 - y0), COL_HOUSING);
+    canvas.fillSmoothCircle(x, y0, hw, COL_HOUSING);
+    canvas.fillSmoothCircle(x, y1, hw, COL_HOUSING);
+  }
+  float cx = FX(SX(CRANK_X)), cy = FY(SY(CRANK_Y)), ri = FW(15 * K), ro = FW(17 * K);
   for (int i = 0; i < 14; i++) {                  // dashed crank case (design: dasharray 3 4)
-    float a0 = i * 360.0f / 14;
-    sRing(CRANK_X, CRANK_Y, 16, 2, COL_HOUSING, a0, a0 + 10.5f);
+    float a0 = (i * 360.0f / 14) * DEG_TO_RAD, a1 = a0 + 10.5f * DEG_TO_RAD;
+    float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+    canvas.fillTriangle(cx + ri * c0, cy + ri * s0, cx + ro * c0, cy + ro * s0, cx + ro * c1, cy + ro * s1, COL_HOUSING);
+    canvas.fillTriangle(cx + ri * c0, cy + ri * s0, cx + ro * c1, cy + ro * s1, cx + ri * c1, cy + ri * s1, COL_HOUSING);
   }
 }
 

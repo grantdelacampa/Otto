@@ -14,8 +14,8 @@
 - [x] Fast taps reach grumpy again (touch reader task, Nov 15 2026)
 - [x] Smoother animation: glow strokes without anti-aliasing, 80 MHz screen bus, speech task at the
       main loop's priority (voice off ~17 fps, "Hi ESP" ~12)
-- [ ] More frame rate: the draw is still ~45 ms (PSRAM canvas); ideas: only redraw the changing
-      area, cache the static cylinder, fewer smooth strokes
+- [x] More frame rate (Nov 15 2026): idle with voice on ~12 -> ~26 fps (piston cache, partial
+      frames, cheap cylinder). Cards / full-screen faces still draw the whole frame
 - [ ] Voice: the command model mixes up "volume low" -> "volume down"; check in the car / tune
 - [ ] Optional: a real "Hi Otto" wake word = a custom WakeNet model from Espressif (paid; tried an
       always-on command-model version, too many false wakes)

@@ -27,6 +27,14 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
     time-stamped samples to the gesture code. The SPD2010 shows a lift only as an idle status read
     (`00 08`, no INT pulse), and the main loop is ~60-100 ms per frame, so fast taps merged into one
     long touch (petting) when it was read from the loop. `touch raw [secs]` prints every status read.
+  - **Frame rate** (Nov 15 2026; idle with voice on 12 -> ~26 fps, cap is 30): the PSRAM canvas is
+    bandwidth-bound (~23 MB/s with voice; a faster fill didn't help, restoring from a saved background
+    was slower). So: (1) piston body cached in a sprite, redrawn only when lean / size / hue changes,
+    brightness applied on copy via a 64-entry table (idle breathes); (2) "plain" faces (no overlays
+    but OV_HOUSING) clear, draw and send only the piston + rod + crank box (`partBox()`, canvas clip,
+    `displayPushRect`, edges on multiples of 4); anything else is a full frame; (3) cylinder walls =
+    rects, crank dashes = triangles. `perf` shows draw parts + cache redraws. Anything drawing on the
+    canvas outside faceRender must call `faceForceFull()` (the menu does).
   - `perf` prints loop rate, draw / push time per frame and touch read timing. Bench (Nov 15 2026):
     voice off ~17 fps (draw 45 ms, push 12 ms at 80 MHz), "Hi ESP" ~12 fps. Glow strokes use plain
     triangles (`glowLine`): smooth wide lines on the PSRAM canvas cost ~37 ms a frame.
