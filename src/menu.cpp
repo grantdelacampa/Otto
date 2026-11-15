@@ -13,11 +13,12 @@
 #include "extras.h"
 #include "holidays.h"
 #include "obd.h"
+#include "wifitune.h"
 #include <time.h>
 
 enum class Kind : uint8_t { Value, Toggle, Action, BdayPicker };
 enum class View : uint8_t { List, Edit, ConfirmCal, Info, BdayMonth, BdayDay };
-enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes };
+enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes, Wifi };
 
 struct Item {
   const char* name;
@@ -48,6 +49,7 @@ static Item s_items[] = {
   {"GUARD",        Kind::Toggle, nullptr, &g_set.guardOn, 0, 0, 0, Act::None},
   {"OBD ADAPTER",  Kind::Toggle, nullptr, &g_set.obdOn,   0, 0, 0, Act::None},
   {"ENGINE CODES", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Codes},
+  {"WI-FI TUNING", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Wifi},
   {"RECALIBRATE",  Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Recal},
   {"INFO",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Info},
   {"EXIT",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Exit},
@@ -86,6 +88,7 @@ static const char* kMonths[] = {"", "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
 static void valueText(const Item& it, char* b, size_t n) {
   if (it.kind == Kind::Value) snprintf(b, n, "%d%%", *it.ival);
   else if (it.kind == Kind::Toggle) snprintf(b, n, "%s", *it.bval ? "ON" : "OFF");
+  else if (it.act == Act::Wifi) snprintf(b, n, "%s", wifiTuneActive() ? "ON" : "OFF");   // an action, shown like a toggle
   else if (it.kind == Kind::BdayPicker) {
     if (g_set.birthdayMonth > 0 && g_set.birthdayDay > 0)
       snprintf(b, n, "%s %d", kMonths[g_set.birthdayMonth], g_set.birthdayDay);
@@ -115,6 +118,7 @@ void menuTap(float, float) {
           case Act::Recal: s_view = View::ConfirmCal; break;
           case Act::Info: s_view = View::Info; break;
           case Act::Codes: menuClose(true); obdShowCodes(); break;
+          case Act::Wifi: menuClose(true); if (wifiTuneActive()) wifiTuneStop(); else wifiTuneStart(); break;
           case Act::Exit: menuClose(true); break;
           default: break;
         }
@@ -214,9 +218,9 @@ static void drawList(uint32_t now) {
   for (int i = 0; i < 3; i++)
     canvas.drawRect(34 * LCD_W / 240 + i, 96 * LCD_W / 240 + i, 172 * LCD_W / 240 - 2 * i, 40 * LCD_W / 240 - 2 * i, COL_ICE);
   faceText(sel.name, 46, 116, 4, 14, COL_ICE, Align::Left);
-  if (sel.kind == Kind::Toggle) {
+  if (sel.kind == Kind::Toggle || sel.act == Act::Wifi) {
     float s = LCD_W / 240.0f;
-    bool on = *sel.bval;
+    bool on = sel.kind == Kind::Toggle ? *sel.bval : wifiTuneActive();
     if (on) canvas.fillRoundRect(150 * s, 105 * s, 46 * s, 22 * s, 11 * s, COL_YELLOW);
     else for (int i = 0; i < 2; i++) canvas.drawRoundRect(150 * s + i, 105 * s + i, 46 * s - 2 * i, 22 * s - 2 * i, 11 * s, COL_GRAY);
     canvas.fillSmoothCircle((on ? 185 : 161) * s, 116 * s, 8 * s, on ? COL_BG : COL_GRAY);

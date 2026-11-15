@@ -5,6 +5,7 @@
 // One command per write/line. See README for the full list.
 
 static const uint16_t SRC_SERIAL = 0xFFFF;
+static const uint16_t SRC_HTTP   = 0xFFFD;   // Wi-Fi tuning page (wifitune.cpp captures the replies)
 
 // Vehicle speed from an outside source via the `speed <mph>` command. Otto has no car radio,
 // so nothing sends it yet (bench: tools/fake_gps.py); the 0-60 timer and trip miles use it if it

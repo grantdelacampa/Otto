@@ -16,6 +16,7 @@ static const char* kNames[] = {
   "holidaybirthday", "holidaynewyear", "holidayjuly4", "holidayhalloween", "holidaychristmas",
   "guard", "missedyou", "milestone", "breaktime", "hotcabin", "coldcabin", "showcard", "holidaypatent",
   "warmup", "warm", "enginehot", "checkengine",
+  "wifitune",
 };
 static_assert(sizeof(kNames) / sizeof(kNames[0]) == (size_t)Expr::COUNT, "names out of sync");
 
@@ -48,7 +49,7 @@ static int defaultPrio(Expr e) {
     case Expr::Rev: return 45;
     case Expr::SehrGut: case Expr::Warm: return 42;
     case Expr::WarmUp: return 43;
-    case Expr::CheckEngine: return 47;
+    case Expr::CheckEngine: case Expr::WifiTune: return 47;
     case Expr::EngineHot: return 62;
     case Expr::Guard: case Expr::Milestone: case Expr::BreakTime: case Expr::HotCabin: case Expr::ColdCabin: return 44;
     case Expr::MissedYou: return 41;
@@ -507,6 +508,11 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
     case Expr::CheckEngine:                   // card: code + "CODE 1 OF 2" (set by obd.cpp)
       f.ov = OV_ANSWER | OV_HOUSING; f.fcx = 120; f.fcy = 66; f.fscale = 0.42f;
       f.eye = Eye::Ahem; f.brow = Brow::Ahem; f.mouth = Mouth::Frown; f.eyeR = 10;
+      break;
+
+    case Expr::WifiTune:                      // card: WI-FI OTTO-xxxx / password / address (set by wifitune.cpp)
+      f.ov = OV_ANSWER | OV_HOUSING; f.fcx = 120; f.fcy = 66; f.fscale = 0.42f;
+      f.eye = Eye::Dot; f.brow = Brow::Raised; f.mouth = Mouth::Pleased; f.eyeR = 10;
       break;
 
     default: break;

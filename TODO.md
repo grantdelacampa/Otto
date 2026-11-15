@@ -20,6 +20,10 @@
 - [ ] Optional: a real "Hi Otto" wake word = a custom WakeNet model from Espressif (paid; tried an
       always-on command-model version, too many false wakes)
 
+- [x] Sleep / wake (Nov 15 2026): touch can't wake on this board (SPD2010 INT heartbeat) -> buttons +
+      motion; IMU soft reset after wake-on-motion (data was frozen, tilting never woke him)
+- [ ] Rotor: check whether its sleep checks see live data too (same code; Rotor's notes say it works)
+
 ## OBD-II (software done Nov 14, 2026 and bench-tested with tools/fake_obd.py; needs the real adapter)
 The 1997 E420 has OBD-II (US cars from that year: ISO 9141 K-line, slow — a few readings per second in
 total; check which readings the car supports with mode 01 PID 00 once connected).

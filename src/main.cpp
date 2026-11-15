@@ -31,10 +31,20 @@
 #include "ota.h"
 #include "holidays.h"
 #include "obd.h"
+#include "wifitune.h"
 
 // Survive deep sleep
 RTC_DATA_ATTR static float s_sleepRef[3] = {0, 0, 0};
 RTC_DATA_ATTR static bool s_haveRef = false;
+// Restarted on purpose (after Wi-Fi tuning): no boot show. RTC_DATA_ATTR is re-initialized on a
+// software restart (it only survives deep sleep), so this uses NOINIT memory + a magic number.
+RTC_NOINIT_ATTR static uint32_t s_quietBoot;
+static const uint32_t QUIET_MAGIC = 0x0770A11Eu;
+void requestQuietReboot() {                       // wifitune.cpp: Wi-Fi doesn't hand all its RAM back
+  s_quietBoot = QUIET_MAGIC;
+  Serial.flush();
+  ESP.restart();
+}
 RTC_DATA_ATTR static bool s_hotSleep = false;     // sleeping because it got too hot
 RTC_DATA_ATTR static bool s_wokeByVib = false;    // woken by engine vibration
 RTC_DATA_ATTR static bool s_womArmed = false;     // the IMU's wake-on-motion watched this sleep
@@ -45,6 +55,10 @@ RTC_DATA_ATTR static uint32_t s_peeks = 0;
 RTC_DATA_ATTR static float s_peekD = 0, s_peekSd = 0;
 RTC_DATA_ATTR static int s_peekGot = -1;
 RTC_DATA_ATTR static float s_peekMean[3] = {0, 0, 0};
+// The last 8 full motion checks while asleep, for `sleeplog` (survives deep sleep, not a restart)
+struct PeekRec { uint32_t n; float d, sd; uint8_t fired, woke; };
+RTC_DATA_ATTR static PeekRec s_peekLog[8];
+RTC_DATA_ATTR static uint8_t s_peekLogN = 0;
 
 static volatile bool s_wantSleep = false, s_wantOff = false;
 void requestSleep() { s_wantSleep = true; }
@@ -76,15 +90,10 @@ static void averageAccel(float out[3], int n) {
 static void enterDeepSleep(uint32_t timerSecs) {
   uint64_t mask = (1ULL << PIN_BTN_BOOT) | (1ULL << PIN_BTN_PWR);
   touchPrepareSleep();
-  // After a 4 s timer peek the pin isn't set up yet (touchInit didn't run), so an
-  // unconfigured read could look LOW and silently drop touch wake from every later sleep.
-  pinMode(PIN_TP_INT, INPUT_PULLUP);
-  delay(30);   // let any INT pulse finish before checking the line is idle
-  // touch wake only if the touch interrupt line is idle (otherwise it would wake instantly)
-  if (g_set.touchWake && digitalRead(PIN_TP_INT) == HIGH) {
-    mask |= (1ULL << PIN_TP_INT);
-    rtc_gpio_pullup_en((gpio_num_t)PIN_TP_INT);
-  }
+  // No touch wake on this board: the SPD2010 pulses INT on its own while idle (every ~0.5 s when
+  // read, every ~0.16 s when not, status 00 18 = nothing there), so it woke Otto ~1 s after every
+  // sleep (bench, Nov 15 2026). Buttons + motion (peeks / wake-on-motion) wake him instead.
+  // g_set.touchWake stays in the settings (shared layout with Rotor) but does nothing here.
   boardHoldPinsForSleep();
   rtc_gpio_pullup_en((gpio_num_t)PIN_BTN_BOOT);
   rtc_gpio_pullup_en((gpio_num_t)PIN_BTN_PWR);
@@ -121,7 +130,7 @@ static void quickWakeCheck() {
     bool buttons0 = boardBootPressed() || boardPwrPressed();
     if (!fired && !buttons0 && ++s_womQuiet < 15) { s_peeks++; enterDeepSleep(4); }
     s_womQuiet = 0;
-    motionLowPower();               // readings again
+    motionLeaveWom();               // readings again (a soft reset: reconfiguring alone left them frozen)
     delay(120);                     // junk for ~100 ms after a mode switch
   }
 
@@ -149,6 +158,8 @@ static void quickWakeCheck() {
 
   bool vib = sd > g_set.engineVib * 0.7f;
   bool buttons = boardBootPressed() || boardPwrPressed();
+  PeekRec& pr = s_peekLog[s_peekLogN++ % 8];
+  pr.n = s_peeks; pr.d = d; pr.sd = sd; pr.fired = fired; pr.woke = !(d < 0.035f && !vib && !buttons);
   if (d < 0.035f && !vib && !buttons) {
     // it shook but is still where it was and no engine: a knock / door ding that's already over
     if (fired && g_set.guardOn) extrasGuardBump();
@@ -186,7 +197,22 @@ static void quickWakeCheck() {
 
 static void showFor(uint32_t ms);
 
+void sleepLogPrint(void (*out)(const char*)) {   // commands.cpp: `sleeplog`
+  char b[120];
+  int n = s_peekLogN < 8 ? s_peekLogN : 8;
+  snprintf(b, sizeof(b), "sleeplog: last %d full motion checks; wake needs moved >= 0.035 g or vib > %.4f g",
+           n, g_set.engineVib * 0.7f);
+  out(b);
+  for (int i = 0; i < n; i++) {
+    const PeekRec& r = s_peekLog[(s_peekLogN - n + i) % 8];
+    snprintf(b, sizeof(b), "  check %u: knock flag %d, moved %.3f g, vib %.4f g -> %s", (unsigned)r.n, r.fired, r.d, r.sd,
+             r.woke ? "woke" : "back to sleep");
+    out(b);
+  }
+}
+
 static void goToSleep() {
+  wifiTuneStop();
   if (g_set.summaryOn && tripShowSummary()) showFor(5000);
   if (extrasShowMilestone()) showFor(5000);
   brainEventPrio(Expr::Sleep, 4000, 99);
@@ -205,6 +231,7 @@ static void goToSleep() {
 }
 
 static void hotSleep() {
+  wifiTuneStop();
   brainEventPrio(Expr::HotOff, 4000, 105);
   audioChirp(900, 400, 300);
   showFor(3000);
@@ -218,6 +245,7 @@ static void hotSleep() {
 }
 
 static void powerOff() {
+  wifiTuneStop();
   brainEventPrio(Expr::Sleep, 4000, 99);
   audioChirp(1200, 500, 250);
   showFor(1200);
@@ -313,7 +341,16 @@ void setup() {
   if (!touchInit()) Serial.println("touch not found");
   if (!motionInit()) Serial.println("IMU not found");
   powerInit();
-  powerLog(coldBoot ? "boot" : "wake");
+  {
+    // which source woke us, for the battery log (and the serial line after boot)
+    const char* why = coldBoot ? "boot" : "wake";
+    if (cause == ESP_SLEEP_WAKEUP_EXT1) {
+      uint64_t st = esp_sleep_get_ext1_wakeup_status();
+      why = (st & (1ULL << PIN_TP_INT)) ? "wake-touch" : (st & (1ULL << PIN_BTN_BOOT)) ? "wake-boot"
+          : (st & (1ULL << PIN_BTN_PWR)) ? "wake-pwr" : "wake-ext1";
+    } else if (cause == ESP_SLEEP_WAKEUP_TIMER) why = "wake-peek";
+    powerLog(why);
+  }
   if (!audioInit()) Serial.println("audio init failed");
   micInit();
   recorderInit();
@@ -325,7 +362,14 @@ void setup() {
   obdInit();
 
   uint32_t now = millis();
-  if (coldBoot) {
+  bool quiet = s_quietBoot == QUIET_MAGIC;
+  s_quietBoot = 0;
+  if (quiet) {                               // back from Wi-Fi tuning: straight to idle
+    s_bootDone = now;
+    s_batPending = false;
+    brainEventPrio(Expr::Happy, 1500, 70);   // a smile while the motion chip settles (it reads a fake bump)
+    Serial.println("boot: quiet restart (after Wi-Fi tuning)");
+  } else if (coldBoot) {
     brainEvent(Expr::Boot, 3200);            // outline 1.5 s, eyes at 1.9 s, pumping at 2.3 s
     audioChirp(400, 1200, 300);
     scheduleGreeting(now, 3300, false);
@@ -396,6 +440,7 @@ void loop() {
   tripUpdate(now, dt);
   otaUpdate(now);
   obdUpdate(now);
+  wifiTuneUpdate(now);
 
   // greeting (on boot / wake / engine start)
   if (s_greetAt && (int32_t)(now - s_greetAt) >= 0) {
@@ -481,7 +526,7 @@ void loop() {
   }
 
   // sleep when parked with nothing connected
-  bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn();
+  bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn() || wifiTuneActive();
   if (g_motion.ok && g_motion.stillSecs > g_set.sleepMin * 60 && !bleAnyConnected() && !busy) s_wantSleep = true;
 
   if (s_wantOff && !otaActive()) powerOff();

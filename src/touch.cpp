@@ -44,6 +44,8 @@ static bool tpRead(uint8_t r0, uint8_t r1, uint8_t* buf, size_t n) {
   return true;
 }
 
+void touchResume() { s_pause = false; }
+
 void touchPrepareSleep() {
   // Clear any pending report so INT is idle (high) when we decide whether touch may wake us.
   s_pause = true;
@@ -172,7 +174,12 @@ static void readerTask(void*) {
         static uint32_t s_prev = 0;
         if (down && s_prev && now - s_prev > g_tpGapMaxMs) g_tpGapMaxMs = now - s_prev;
         s_prev = now;
-        if (n > 0 || (n == 0 && down)) {
+        // A lift only counts after 3 idle reads in a row (~30 ms): right after touch-down (and now
+        // and then while a finger slides) the chip shows a single idle read, which turned the start
+        // of every swipe into a tap (bench, Nov 15 2026). Real lifts stay idle for 190+ ms.
+        static int idleRun = 0;
+        idleRun = (n == 0) ? idleRun + 1 : 0;
+        if (n > 0 || (n == 0 && down && idleRun >= 3)) {
           TouchSample smp = {now, (int8_t)(n > 0 ? 1 : 0), pt[0].x, pt[0].y};
           if (n == 0) { smp.x = smp.y = 0; }
           if (xQueueSend(s_q, &smp, 0) != pdTRUE) s_qOverflow = true;

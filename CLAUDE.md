@@ -76,6 +76,23 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   Never clears codes (mode 04) on purpose. Settings went to SETTINGS_VERSION 2 for the OBD keys.
 - Telemetry dropped `cab`/`rh` (no SHTC3 on this board) for `obd`/`rpm`/`cool`; keep it under ~240 chars
   (BLE notify size).
+- **Wi-Fi tuning** (`wifitune.*`, Nov 15 2026): SoftAP `OTTO-xxxx` (per-board password from the MAC),
+  core WebServer on 192.168.4.1 serving tools/tuning.html (embedded: `board_build.embed_txtfiles`;
+  delete `.pio/build/otto/tuning.html.txt.o` if a page edit doesn't show up) + /api/cmd, stat, cfg,
+  log, ota. The page decides Wi-Fi vs Bluetooth by fetching /api/stat (an address check failed on iOS
+  Safari). Voice pauses while it runs: with voice on only ~20 KB internal RAM is free. Wi-Fi doesn't
+  give all its RAM back when stopped (voice then failed to start), so stopping does a quiet restart
+  (RTC_NOINIT magic -> no boot show; RTC_DATA_ATTR does NOT survive a software restart).
+- lib/ESP_SR `sr_stop()` patched: a task that failed to start has a NULL handle, and
+  `vTaskDelete(NULL)` deleted the main loop (Otto froze).
+- **Sleep / wake** (bench, Nov 15 2026): no touch wake on this board. The SPD2010 pulses INT on its
+  own while idle (~every 0.5 s when read, ~0.16 s when not; status `00 18`), so it woke Otto ~1 s after
+  every sleep. Wakes = BOOT / PWR buttons + motion peeks (tilt > ~2 deg or engine vibration; a knock
+  that leaves him in place goes back to sleep, as designed). After the QMI8658's wake-on-motion the
+  accel output stayed **frozen** unless soft-reset (`motionLeaveWom()`); Rotor's plain reconfigure
+  wasn't enough here. Debug: `awake`, `sleeplog`, `womcheck [reset]`, `touch int`, batlog wake causes.
+- Touch lift = 3 idle reads in a row in the reader task: a single idle read shows up right after
+  touch-down and while sliding, which turned every swipe start into a tap.
 - **Wake word stays "Hi ESP"** (owner, Nov 15 2026). "Hi Otto" was tried: Espressif has no free model
   for it, so the MultiNet command model ran always-on with "hi otto" as a command. It woke on its own
   in a quiet room (~-50 dBFS) at the same confidence as real ones (0.3-0.5) and halved the frame rate,

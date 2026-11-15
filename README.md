@@ -107,6 +107,15 @@ If touches land in the wrong place, type `touch`, tap the corners, and set
 
 ## 6. Tuning page
 
+**From a phone (any phone, plain Safari / Chrome):** Otto's menu → **WI-FI TUNING** (or `wifi on`).
+Otto shows his network name and password (`OTTO-xxxx`, a per-board password) and the address. Join
+that Wi-Fi on the phone (it will say "no internet" — stay connected), open **http://192.168.4.1** and
+the page links by itself. Voice commands pause while it's on. To finish, tap **TURN OFF WI-FI** on the page, flip the WI-FI TUNING switch in the menu (or `wifi off`):
+Otto restarts quietly (no boot show) so voice gets its memory back. It also switches off
+after 10 minutes without the page. Firmware updates work here too, much faster than Bluetooth.
+
+**From a computer, over Bluetooth:**
+
 `tools/tuning.html`, over Web Bluetooth (Chrome / Edge). Browsers only allow Bluetooth on
 localhost or https:
 
@@ -127,6 +136,8 @@ Same commands over USB and Bluetooth. `help` lists them:
 |---|---|
 | `stat` | live telemetry JSON |
 | `obd ...` | OBD-II adapter (section 8) |
+| `wifi [on\|off]` | Wi-Fi tuning mode / its status |
+| `mem`, `perf`, `perf boot`, `reboot` | free memory, frame + touch timing, boot frame log, restart |
 | `get` / `cfg {"brake":0.4}` | read / change settings (partial JSON) |
 | `expr braking 3000` | show any expression for N ms |
 | `calibrate`, `flipfwd` | mount calibration / flip forward axis |
@@ -137,9 +148,10 @@ Same commands over USB and Bluetooth. `help` lists them:
 | `touch` | raw touch points for 5 s |
 | `time <unix> <tz-minutes>`, `clock` | set / show the clock (the tuning page sets it on connect) |
 | `vibcap`, `mic`, `music`, `listen` | idle vibration test, mic level, music detection, voice status |
-| `touch [secs]`, `touch raw [secs]` | raw touch points / every touch-chip status read |
+| `touch [secs]`, `touch raw [secs]`, `touch int [secs]` | raw touch points / every touch-chip status read / INT line activity |
+| `awake`, `sleeplog`, `womcheck [reset]` | what keeps Otto awake / his last motion checks while asleep / the sleep motion check on the bench |
 | `i2cscan` | devices on the I2C bus (expect 0x20, 0x51, 0x53, 0x6B) |
-| `batlog`, `batfake <V>\|off` | battery log / pretend battery voltage |
+| `batlog`, `batfake <V>\|off` | battery log (wake entries say what woke him: wake-boot, wake-pwr, wake-peek) / pretend battery voltage |
 | `show on\|off`, `extras [guard\|hot\|cold\|missed\|milestone\|break\|patent]` | car show mode / extras demos |
 | `play <clip>` | play a voice clip, e.g. `play morgen` |
 | `holidays [on\|off]`, `birthday M D` / `birthday clear` | holidays + birthday |

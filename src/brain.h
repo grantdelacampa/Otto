@@ -16,6 +16,7 @@ enum class Expr : uint8_t {
   HolidayBirthday, HolidayNewYear, HolidayJuly4, HolidayHalloween, HolidayChristmas,
   Guard, MissedYou, Milestone, BreakTime, HotCabin, ColdCabin, ShowCard, HolidayPatent,
   WarmUp, Warm, EngineHot, CheckEngine,   // OBD-II (obd.cpp)
+  WifiTune,                               // Wi-Fi tuning mode: how to join (wifitune.cpp)
   COUNT
 };
 

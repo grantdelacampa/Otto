@@ -21,11 +21,15 @@
 #include "holidays.h"
 #include "music.h"
 #include "obd.h"
+#include "wifitune.h"
 
 SpeedInput g_speed;
 void requestSleep();  // main.cpp
 
+void wifiTuneReply(const char* msg);   // wifitune.cpp
+
 static void reply(uint16_t src, const char* msg) {
+  if (src == SRC_HTTP) { wifiTuneReply(msg); return; }
   if (src == SRC_SERIAL) Serial.println(msg);
   else bleReply(src, msg);
 }
@@ -48,6 +52,7 @@ static bool cardDemo(Expr e, uint32_t ms) {
     case Expr::MenuOpening:  brainSetRing(0.6f); break;
     case Expr::LaunchReady:  brainSetCaption("0-60 ARMED"); break;
     case Expr::CheckEngine:  brainSetAnswer("CHECK ENGINE", "P0171", "CODE 1 OF 2 - LAMP ON"); break;
+    case Expr::WifiTune:     brainSetAnswer("WI-FI OTTO-430C", "otto1a2b", "THEN OPEN 192.168.4.1"); break;
     default: return false;
   }
   brainEventPrio(e, ms, 120);
@@ -111,6 +116,30 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "resetbest")) { launchResetBest(); reply(src, "best cleared"); }
   } else if (arg(line, "summary")) {
     if (!tripShowSummary()) reply(src, "no drive yet (needs 3+ min)");
+  } else if ((a = arg(line, "wifi"))) {          // Wi-Fi tuning mode: wifi [on|off]
+    if (!strcasecmp(a, "on")) wifiTuneStart();
+    else if (!strcasecmp(a, "off")) wifiTuneStop();
+    char b[160];
+    wifiTuneInfo(b, sizeof(b));
+    reply(src, b);
+  } else if (arg(line, "sleeplog")) {            // debug: the last motion checks while asleep
+    extern void sleepLogPrint(void (*)(const char*));
+    static uint16_t s_src; s_src = src;
+    sleepLogPrint([](const char* m) { reply(s_src, m); });
+  } else if (arg(line, "awake")) {               // debug: what keeps Otto from sleeping
+    extern float g_dbgMagVar, g_dbgGyro;
+    extern bool menuIsOpen(); extern bool otaActive();
+    char b[220];
+    snprintf(b, sizeof(b), "awake: still %.0f of %d s (accel var %.6f < 0.000150, gyro %.2f < 1.50 dps), ble %d, menu %d, ota %d, touch %d, launch %d, show %d, wifi %d, imu %d",
+             g_motion.stillSecs, g_set.sleepMin * 60, g_dbgMagVar, g_dbgGyro, bleAnyConnected(), menuIsOpen(), otaActive(),
+             touchActive(), launchRunning(), extrasShowOn(), wifiTuneActive(), g_motion.ok);
+    reply(src, b);
+  } else if (arg(line, "mem")) {                 // debug: free memory (internal RAM matters for Wi-Fi + voice)
+    char b[160];
+    snprintf(b, sizeof(b), "mem: internal %u free (largest block %u, lowest ever %u), PSRAM %u free",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    reply(src, b);
   } else if (arg(line, "reboot")) {              // restart the board (bench)
     reply(src, "rebooting");
     delay(100);
@@ -138,6 +167,29 @@ void handleCommand(const char* raw, uint16_t src) {
     g_perfFrames = g_perfDrawUs = g_perfPushUs = 0;
     g_perfLoops = g_perfLoopMaxUs = g_tpReads = g_tpReadUs = g_tpReadMaxUs = g_tpGapMaxMs = 0;
     s_since = now;
+  } else if (!strncasecmp(line, "touch int", 9)) {   // debug: INT line activity like during sleep: touch int [secs]
+    float secs = line[9] ? atof(line + 9) : 10;
+    touchPrepareSleep();                         // pauses the reader + clears INT, as before deep sleep
+    pinMode(PIN_TP_INT, INPUT_PULLUP);
+    delay(30);
+    uint32_t t0 = millis(), until = t0 + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
+    int last = digitalRead(PIN_TP_INT), lows = 0;
+    Serial.printf("touch int: start level %d\n", last);
+    uint32_t lowAt = 0;
+    while (millis() < until) {
+      int v = digitalRead(PIN_TP_INT);
+      if (v != last) {
+        if (v == LOW) {
+          lows++; lowAt = micros();
+          if (lows <= 20) Serial.printf("  low at %lu ms\n", millis() - t0);
+          if (strstr(line, "read") && lows <= 6) { TouchPoint p[1]; touchRawRead(p); }   // service it: status printed
+        }
+        else if (lows <= 20) Serial.printf("  high again after %lu us\n", micros() - lowAt);
+        last = v;
+      }
+    }
+    char b[80]; snprintf(b, sizeof(b), "touch int: %d low pulses in %.0f s", lows, secs); reply(src, b);
+    touchResume();
   } else if (!strncasecmp(line, "touch raw", 9)) {   // debug: every SPD2010 status read: touch raw [secs]
     float secs = line[9] ? atof(line + 9) : 10;
     uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
@@ -209,6 +261,8 @@ void handleCommand(const char* raw, uint16_t src) {
   } else if (arg(line, "reset")) {
     settingsReset();
     reply(src, "settings reset");
+  } else if ((a = arg(line, "womcheck"))) {      // debug: womcheck [reset] - the sleep motion check on the bench
+    motionWomCheck(strstr(a, "reset") != nullptr, 6);
   } else if ((a = arg(line, "wom"))) {           // debug: wom [mg] [CTRL2 hex] [secs]
     unsigned mg = 60, c2 = 0x1D, secs = 20;
     sscanf(a, "%u %x %u", &mg, &c2, &secs);
@@ -324,7 +378,7 @@ void handleCommand(const char* raw, uint16_t src) {
     brainEvent(Expr::Boop, 1200);
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
-    reply(src, "hello voice expr obd speed launch summary volume answer "
+    reply(src, "hello voice expr obd wifi mem perf reboot speed launch summary volume answer "
                "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {

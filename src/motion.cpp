@@ -69,6 +69,16 @@ static bool readAll(float a[3], float g[3], float& temp) {
 }
 
 void motionLowPower() { if (g_motion.ok) imuConfigure(true); }
+// Out of wake-on-motion into low-power readings. On Otto's board the accel output stayed frozen at
+// the value from before WoM was armed when only reconfigured (every sleep check saw "moved 0.001 g,
+// vib 0", so tilting / the engine never woke him; bench `womcheck`, Nov 15 2026). A soft reset
+// first gives live data again.
+void motionLeaveWom() {
+  if (!g_motion.ok) return;
+  imuWrite(REG_RESET, 0xB0);
+  delay(15);
+  imuConfigure(true);
+}
 // vibcap: accel only at ~1 kHz ODR, filters off. Each sample is read when the chip flags new
 // data (STATUS0 bit 0), so we sample at exactly the chip's own rate: pacing with our own clock
 // instead beat against the ODR and made a fake 100 Hz peak. rateHz is unused (kept for the API).
@@ -169,6 +179,34 @@ void motionWomTest(uint8_t mg, uint8_t ctrl2, int secs) {
     delay(50);
   }
   Serial.printf("wom: done, %d flagged reads\n", hits);
+  motionInit();
+}
+
+// Debug (womcheck): the sleep peek on the bench. Arm wake-on-motion, wait `secs` (move it now),
+// then read 16 samples the way quickWakeCheck does. reset = soft-reset the IMU first.
+void motionWomCheck(bool reset, int secs) {
+  float ref[3] = {0, 0, 0};
+  imuConfigure(true); delay(300);
+  for (int i = 0; i < 10; i++) { float x, y, z; motionReadAccel(x, y, z); ref[0] += x / 10; ref[1] += y / 10; ref[2] += z / 10; delay(10); }
+  bool armed = motionArmWom(30);
+  Serial.printf("womcheck: armed %d, ref %.3f %.3f %.3f - move / tilt it now (%d s)\n", armed, ref[0], ref[1], ref[2], secs);
+  delay(secs * 1000);
+  bool fired = motionWomFired();
+  if (reset) { imuWrite(REG_RESET, 0xB0); delay(15); }
+  imuConfigure(true);
+  delay(120);
+  float sum[3] = {0, 0, 0}, m[16];
+  for (int i = 0; i < 16; i++) {
+    float x, y, z; motionReadAccel(x, y, z);
+    sum[0] += x; sum[1] += y; sum[2] += z; m[i] = sqrtf(x * x + y * y + z * z);
+    if (i < 4 || i == 15) Serial.printf("  sample %2d: %.4f %.4f %.4f\n", i, x, y, z);
+    delay(36);
+  }
+  float mean = 0, var = 0, d = 0;
+  for (int i = 0; i < 16; i++) mean += m[i] / 16;
+  for (int i = 0; i < 16; i++) var += (m[i] - mean) * (m[i] - mean) / 16;
+  for (int k = 0; k < 3; k++) d = fmaxf(d, fabsf(sum[k] / 16 - ref[k]));
+  Serial.printf("womcheck: %s, knock flag %d, moved %.3f g, vib %.4f g\n", reset ? "with reset" : "no reset", fired, d, sqrtf(var));
   motionInit();
 }
 
@@ -302,6 +340,8 @@ static void recordTurn(uint32_t now) {
   }
 }
 
+float g_dbgMagVar = 0, g_dbgGyro = 0;
+
 void motionUpdate(uint32_t now) {
   if (!g_motion.ok) return;
   if (now - s_lastSample < 9) return;  // ~110 Hz max
@@ -337,6 +377,9 @@ void motionUpdate(uint32_t now) {
   s_magVar += ((mag - s_magMean) * (mag - s_magMean) - s_magVar) * km;
   float gyroMag = sqrtf(dot3(g, g));
   bool still = s_magVar < 0.00015f && gyroMag < 1.5f;
+  g_dbgMagVar = s_magVar; g_dbgGyro = gyroMag;           // for `awake`
+  if (!still && g_motion.stillSecs > 20)
+    Serial.printf("still: reset after %.0f s (accel var %.6f, gyro %.2f dps, |a| %.3f)\n", g_motion.stillSecs, s_magVar, gyroMag, mag);
   g_motion.stillSecs = still ? g_motion.stillSecs + dt : 0;
   // Keep the gyro offset fresh: sitting still (steady accel, no sideways g, small rotation)
   // -> slowly pull the offset toward what the gyro reads now (~10 s time constant).
