@@ -33,11 +33,13 @@ bool motionProbeOnly();
 bool motionReadAccel(float& x, float& y, float& z);
 bool motionReadTemp(float& c);         // IMU die temperature, deg C
 void motionLowPowerTest(uint8_t ctrl2, uint8_t ctrl5);  // debug (imulp)
+void motionWomCheck(bool reset, int secs);  // debug (womcheck): the sleep peek on the bench
 void motionWomTest(uint8_t mg, uint8_t ctrl2, int secs);  // debug (wom): arm wake-on-motion, poll its flags
 int  motionVibCapture(float* ax, float* ay, float* az, int n, float rateHz, float& actualHz);  // vibcap
 void motionLowPower();                 // accel only, low rate, before deep sleep
+void motionLeaveWom();   // after wake-on-motion: soft reset + low-power readings (else the data stays frozen)
 // Wake-on-motion (sleep): the chip watches continuously and latches a flag (STATUS1 bit 2) that the
 // 4 s peek reads. Its INT only reaches the IO expander, so it can't wake the S3 itself.
-// While armed the accel registers stop updating: call motionLowPower() (+ ~120 ms) before reading.
+// While armed the accel registers stop updating: call motionLeaveWom() (+ ~120 ms) before reading.
 bool motionArmWom(uint8_t mg);
 bool motionWomFired();                 // read + clear the latched flag

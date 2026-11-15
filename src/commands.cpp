@@ -122,6 +122,18 @@ void handleCommand(const char* raw, uint16_t src) {
     char b[160];
     wifiTuneInfo(b, sizeof(b));
     reply(src, b);
+  } else if (arg(line, "sleeplog")) {            // debug: the last motion checks while asleep
+    extern void sleepLogPrint(void (*)(const char*));
+    static uint16_t s_src; s_src = src;
+    sleepLogPrint([](const char* m) { reply(s_src, m); });
+  } else if (arg(line, "awake")) {               // debug: what keeps Otto from sleeping
+    extern float g_dbgMagVar, g_dbgGyro;
+    extern bool menuIsOpen(); extern bool otaActive();
+    char b[220];
+    snprintf(b, sizeof(b), "awake: still %.0f of %d s (accel var %.6f < 0.000150, gyro %.2f < 1.50 dps), ble %d, menu %d, ota %d, touch %d, launch %d, show %d, wifi %d, imu %d",
+             g_motion.stillSecs, g_set.sleepMin * 60, g_dbgMagVar, g_dbgGyro, bleAnyConnected(), menuIsOpen(), otaActive(),
+             touchActive(), launchRunning(), extrasShowOn(), wifiTuneActive(), g_motion.ok);
+    reply(src, b);
   } else if (arg(line, "mem")) {                 // debug: free memory (internal RAM matters for Wi-Fi + voice)
     char b[160];
     snprintf(b, sizeof(b), "mem: internal %u free (largest block %u, lowest ever %u), PSRAM %u free",
@@ -155,6 +167,29 @@ void handleCommand(const char* raw, uint16_t src) {
     g_perfFrames = g_perfDrawUs = g_perfPushUs = 0;
     g_perfLoops = g_perfLoopMaxUs = g_tpReads = g_tpReadUs = g_tpReadMaxUs = g_tpGapMaxMs = 0;
     s_since = now;
+  } else if (!strncasecmp(line, "touch int", 9)) {   // debug: INT line activity like during sleep: touch int [secs]
+    float secs = line[9] ? atof(line + 9) : 10;
+    touchPrepareSleep();                         // pauses the reader + clears INT, as before deep sleep
+    pinMode(PIN_TP_INT, INPUT_PULLUP);
+    delay(30);
+    uint32_t t0 = millis(), until = t0 + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
+    int last = digitalRead(PIN_TP_INT), lows = 0;
+    Serial.printf("touch int: start level %d\n", last);
+    uint32_t lowAt = 0;
+    while (millis() < until) {
+      int v = digitalRead(PIN_TP_INT);
+      if (v != last) {
+        if (v == LOW) {
+          lows++; lowAt = micros();
+          if (lows <= 20) Serial.printf("  low at %lu ms\n", millis() - t0);
+          if (strstr(line, "read") && lows <= 6) { TouchPoint p[1]; touchRawRead(p); }   // service it: status printed
+        }
+        else if (lows <= 20) Serial.printf("  high again after %lu us\n", micros() - lowAt);
+        last = v;
+      }
+    }
+    char b[80]; snprintf(b, sizeof(b), "touch int: %d low pulses in %.0f s", lows, secs); reply(src, b);
+    touchResume();
   } else if (!strncasecmp(line, "touch raw", 9)) {   // debug: every SPD2010 status read: touch raw [secs]
     float secs = line[9] ? atof(line + 9) : 10;
     uint32_t until = millis() + (uint32_t)(constrain(secs, 1.0f, 60.0f) * 1000);
@@ -226,6 +261,8 @@ void handleCommand(const char* raw, uint16_t src) {
   } else if (arg(line, "reset")) {
     settingsReset();
     reply(src, "settings reset");
+  } else if ((a = arg(line, "womcheck"))) {      // debug: womcheck [reset] - the sleep motion check on the bench
+    motionWomCheck(strstr(a, "reset") != nullptr, 6);
   } else if ((a = arg(line, "wom"))) {           // debug: wom [mg] [CTRL2 hex] [secs]
     unsigned mg = 60, c2 = 0x1D, secs = 20;
     sscanf(a, "%u %x %u", &mg, &c2, &secs);

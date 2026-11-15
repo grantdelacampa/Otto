@@ -44,6 +44,8 @@ static bool tpRead(uint8_t r0, uint8_t r1, uint8_t* buf, size_t n) {
   return true;
 }
 
+void touchResume() { s_pause = false; }
+
 void touchPrepareSleep() {
   // Clear any pending report so INT is idle (high) when we decide whether touch may wake us.
   s_pause = true;

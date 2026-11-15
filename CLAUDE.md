@@ -85,6 +85,12 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   (RTC_NOINIT magic -> no boot show; RTC_DATA_ATTR does NOT survive a software restart).
 - lib/ESP_SR `sr_stop()` patched: a task that failed to start has a NULL handle, and
   `vTaskDelete(NULL)` deleted the main loop (Otto froze).
+- **Sleep / wake** (bench, Nov 15 2026): no touch wake on this board. The SPD2010 pulses INT on its
+  own while idle (~every 0.5 s when read, ~0.16 s when not; status `00 18`), so it woke Otto ~1 s after
+  every sleep. Wakes = BOOT / PWR buttons + motion peeks (tilt > ~2 deg or engine vibration; a knock
+  that leaves him in place goes back to sleep, as designed). After the QMI8658's wake-on-motion the
+  accel output stayed **frozen** unless soft-reset (`motionLeaveWom()`); Rotor's plain reconfigure
+  wasn't enough here. Debug: `awake`, `sleeplog`, `womcheck [reset]`, `touch int`, batlog wake causes.
 - Touch lift = 3 idle reads in a row in the reader task: a single idle read shows up right after
   touch-down and while sliding, which turned every swipe start into a tap.
 - **Wake word stays "Hi ESP"** (owner, Nov 15 2026). "Hi Otto" was tried: Espressif has no free model
