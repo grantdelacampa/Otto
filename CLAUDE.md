@@ -103,5 +103,6 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
 - ESP-SR detect task runs at **priority 1** on core 1 (= loopTask) in lib/ESP_SR: at 5 it pushed the
   main loop aside. Core 0 can't take it (feed task + detect starve IDLE0 -> task watchdog reboot).
 - Voice clips: German, generated with `tools/make_clips.ps1` via `tools/tts.ps1` (any WinRT voice,
-  `-Lang de-DE`). **No German voice is installed on the owner's PC yet** (only en-US + ja-JP), so
-  `data/clips` is empty and every clip plays the chirp for now.
+  `-Lang de-DE`). Generated Nov 15 2026 with **Microsoft Stefan** (owner's pick; Katja / Hedda also
+  installed), 25 clips, ~1.4 MB, on the board via `pio run -t uploadfs` (wipes the battery + drive
+  logs; settings live in NVS, speech models in their own partition). Heard on the speaker: good.

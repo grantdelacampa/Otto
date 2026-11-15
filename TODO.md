@@ -22,6 +22,8 @@
 
 - [x] Sleep / wake (Nov 15 2026): touch can't wake on this board (SPD2010 INT heartbeat) -> buttons +
       motion; IMU soft reset after wake-on-motion (data was frozen, tilting never woke him)
+- [x] German voice clips (Stefan) generated + on the board (Nov 15 2026)
+- [x] Bench: sleep / wake, buttons, crank drag, motion faces, every derived face (Nov 15 2026)
 - [ ] Rotor: check whether its sleep checks see live data too (same code; Rotor's notes say it works)
 
 ## OBD-II (software done Nov 14, 2026 and bench-tested with tools/fake_obd.py; needs the real adapter)
