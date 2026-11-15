@@ -110,8 +110,8 @@ If touches land in the wrong place, type `touch`, tap the corners, and set
 **From a phone (any phone, plain Safari / Chrome):** Otto's menu → **WI-FI TUNING** (or `wifi on`).
 Otto shows his network name and password (`OTTO-xxxx`, a per-board password) and the address. Join
 that Wi-Fi on the phone (it will say "no internet" — stay connected), open **http://192.168.4.1** and
-the page links by itself. Voice commands pause while it's on. Pick WI-FI TUNING again (or `wifi off`)
-to finish: Otto restarts quietly (no boot show) so voice gets its memory back. It also switches off
+the page links by itself. Voice commands pause while it's on. To finish, tap **TURN OFF WI-FI** on the page, flip the WI-FI TUNING switch in the menu (or `wifi off`):
+Otto restarts quietly (no boot show) so voice gets its memory back. It also switches off
 after 10 minutes without the page. Firmware updates work here too, much faster than Bluetooth.
 
 **From a computer, over Bluetooth:**

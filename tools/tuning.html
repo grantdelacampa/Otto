@@ -461,6 +461,7 @@ async function wifiConnect() {
   // checks them); requests go to Otto's web server.
   try {
     $('conn').textContent = 'CONNECTING…';
+    $('btnDisconnect').textContent = 'TURN OFF WI-FI';
     chCmd = chCfg = chTel = chLog = chOta = 'wifi';
     const now = Math.floor(Date.now() / 1000), tz = -new Date().getTimezoneOffset();
     await send('hello tuner');
@@ -743,8 +744,15 @@ wifiProbe().then(w => {
   if (WIFI) connect();
   else if (!navigator.bluetooth) $('nobt').classList.remove('hidden');
 });
-$('btnDisconnect').onclick = () => {
-  if (WIFI) { clearInterval(pollTimer); onDisconnected(); return; }
+$('btnDisconnect').onclick = async () => {
+  if (WIFI) {                       // finish: Otto turns his Wi-Fi off and restarts quietly
+    if (!confirm("Turn off Otto's Wi-Fi? Settings are already saved.")) return;
+    clearInterval(pollTimer);
+    try { await send('wifi off'); } catch {}
+    onDisconnected();
+    msg('Wi-Fi is off - Otto restarts in a moment. You can close this page.');
+    return;
+  }
   dev && dev.gatt.connected && dev.gatt.disconnect();
 };
 $('btnCal').onclick = () => { send('calibrate'); msg('hold the car still for 2 seconds'); };
