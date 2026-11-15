@@ -10,6 +10,7 @@ extern LGFX_Sprite canvas;
 
 bool displayInit();
 void displayPush();
+void displayPushRect(int x, int y, int w, int h);   // part of the canvas (edges rounded to multiples of 4)
 void displayBacklight(uint8_t level);  // 0..255 target, eased
 void displayUpdateBacklight(float dt);
 void displayOff();                      // backlight off + panel off (before deep sleep)

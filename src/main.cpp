@@ -292,10 +292,16 @@ static void frame(uint32_t now, float dt, const BrainCtx& ctx) {
   if (now - s_lastFrame >= interval) {
     s_lastFrame = now;
     uint32_t t0 = micros();
-    if (menuIsOpen()) menuRender(now);
-    else faceRender(s_face, brainText(), s_crankAngle, blink, g_set.glow / 100.0f, now / 1000.0f);
+    bool part = false;
+    int px = 0, py = 0, pw = 0, ph = 0;
+    if (menuIsOpen()) { menuRender(now); faceForceFull(); }
+    else {
+      faceRender(s_face, brainText(), s_crankAngle, blink, g_set.glow / 100.0f, now / 1000.0f);
+      part = faceDirtyRect(px, py, pw, ph);
+    }
     uint32_t t1 = micros();
-    displayPush();
+    if (part) displayPushRect(px, py, pw, ph);
+    else displayPush();
     extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
     g_perfFrames++; g_perfDrawUs += t1 - t0; g_perfPushUs += micros() - t1;
     if (g_bootLogN < BOOT_LOG && now < 8000)                 // `perf boot`: the first frames after power-on

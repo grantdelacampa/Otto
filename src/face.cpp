@@ -347,7 +347,9 @@ static void drawPiston(const FaceState& f) {
   int sw = s_pc.width(), sh = s_pc.height();
   const uint16_t* src = (const uint16_t*)s_pc.getBuffer();
   uint16_t* dst = (uint16_t*)canvas.getBuffer();
-  int x0 = max(0, dx), x1 = min(LCD_W, dx + sw), y0 = max(0, dy), y1 = min(LCD_H, dy + sh);
+  int32_t cx0, cy0, cw, ch;                          // respect the canvas clip (partial frames)
+  canvas.getClipRect(&cx0, &cy0, &cw, &ch);
+  int x0 = max((int)cx0, dx), x1 = min((int)(cx0 + cw), dx + sw), y0 = max((int)cy0, dy), y1 = min((int)(cy0 + ch), dy + sh);
   for (int y = y0; y < y1; y++) {
     const uint16_t* sp = src + (y - dy) * sw + (x0 - dx);
     uint16_t* dp = dst + y * LCD_W + x0;
@@ -904,12 +906,37 @@ void faceText(const char* s, float x, float y, int fontSize, float designH, uint
 // `perf`: time per part of the frame (us, summed): clear, cylinder, piston + mouth, brows + eyes, overlays
 uint32_t g_perfPart[5] = {0, 0, 0, 0, 0};
 
+// Partial frames (see faceRender). Boxes are in panel pixels, edges on multiples of 4 (SPD2010).
+struct PartBox { int x0, y0, x1, y1; };
+static PartBox s_dirty = {0, 0, LCD_W, LCD_H}, s_prevBox = {0, 0, LCD_W, LCD_H};
+static bool s_prevPlain = false;
+static uint64_t s_prevOv = 0;
+static float s_prevT[5] = {0, 0, 0, 0, 0};
+
+// Everything a plain frame draws that moves: piston (+ lean, glow, eyes on it), rod, crank case
+static PartBox partBox() {
+  float ox[PN], oy[PN];
+  pistonOutline(ox, oy);
+  float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+  for (int i = 0; i < PN; i++) {
+    float px, py;
+    PP(ox[i], oy[i], px, py);
+    float sx = FX(px), sy = FY(py);
+    x0 = fminf(x0, sx); x1 = fmaxf(x1, sx); y0 = fminf(y0, sy); y1 = fmaxf(y1, sy);
+  }
+  float m = FW(5 * K * s_hs + 6) * 0.5f + 6;      // stroke + glow half-width + a little
+  x0 -= m; y0 -= m; x1 += m; y1 += m;
+  float cx = FX(SX(CRANK_X)), cy = FY(SY(CRANK_Y)), r = FW(24 * K) + 6;   // crank case, big end + glow
+  x0 = fminf(x0, cx - r); x1 = fmaxf(x1, cx + r); y0 = fminf(y0, cy - r); y1 = fmaxf(y1, cy + r);
+  PartBox b = {((int)floorf(x0)) & ~3, ((int)floorf(y0)) & ~3, ((int)ceilf(x1) + 3) & ~3, ((int)ceilf(y1) + 3) & ~3};
+  b.x0 = max(0, b.x0); b.y0 = max(0, b.y0); b.x1 = min(LCD_W, b.x1); b.y1 = min(LCD_H, b.y1);
+  return b;
+}
+
 void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, float blinkOpen, float glow,
                 float t) {
   g_fcx = f.fcx; g_fcy = f.fcy; g_fs = f.fscale; g_glow = glow;
   uint32_t pt = micros(), pn;
-  canvas.fillScreen(COL_BG);
-  pn = micros(); g_perfPart[0] += pn - pt; pt = pn;
 
   // piston pose: stroke from the crank, lean from tilt, size, whole-character offset
   s_dx = f.rdx; s_dy = f.rdy; s_hs = f.rscale;
@@ -917,6 +944,24 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
   s_lc = cosf(lean); s_ls = sinf(lean);
   bool lantern = f.ov & OV_LANTERN;
   crankGeometry(lantern ? 0 : crankAngleDeg, lantern ? 0 : f.rest);
+
+  // Partial frame: when only the piston, rod and crank move (plain faces, nothing else on screen),
+  // just that box is cleared, redrawn and sent (the wipe + send were ~30 ms of a full frame; the
+  // canvas is in PSRAM, which is slow with voice running). Anything else: a full frame.
+  bool plain = (f.ov & ~OV_HOUSING) == 0 && f.drawFrac >= 0.99f && !f.dashed && f.rbright > 0.01f && !lantern;
+  PartBox box = plain ? partBox() : PartBox{0, 0, LCD_W, LCD_H};
+  bool same = s_prevPlain && f.ov == s_prevOv && fabsf(g_fcx - s_prevT[0]) < 0.05f && fabsf(g_fcy - s_prevT[1]) < 0.05f &&
+              fabsf(g_fs - s_prevT[2]) < 0.001f && fabsf(s_dx - s_prevT[3]) < 0.05f && fabsf(s_dy - s_prevT[4]) < 0.05f;
+  if (plain && same) {
+    s_dirty = PartBox{min(box.x0, s_prevBox.x0), min(box.y0, s_prevBox.y0), max(box.x1, s_prevBox.x1), max(box.y1, s_prevBox.y1)};
+  } else {
+    s_dirty = PartBox{0, 0, LCD_W, LCD_H};
+  }
+  s_prevPlain = plain; s_prevOv = f.ov; s_prevBox = box;
+  s_prevT[0] = g_fcx; s_prevT[1] = g_fcy; s_prevT[2] = g_fs; s_prevT[3] = s_dx; s_prevT[4] = s_dy;
+  canvas.setClipRect(s_dirty.x0, s_dirty.y0, s_dirty.x1 - s_dirty.x0, s_dirty.y1 - s_dirty.y0);
+  canvas.fillRect(s_dirty.x0, s_dirty.y0, s_dirty.x1 - s_dirty.x0, s_dirty.y1 - s_dirty.y0, COL_BG);
+  pn = micros(); g_perfPart[0] += pn - pt; pt = pn;
 
   if (lantern) {
     s_body = yellow(f.rbright);
@@ -957,5 +1002,13 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
   }
   pn = micros(); g_perfPart[3] += pn - pt; pt = pn;
   drawOverlays(f, tx, t);
+  canvas.clearClipRect();
   g_perfPart[4] += micros() - pt;
 }
+
+bool faceDirtyRect(int& x, int& y, int& w, int& h) {
+  x = s_dirty.x0; y = s_dirty.y0; w = s_dirty.x1 - s_dirty.x0; h = s_dirty.y1 - s_dirty.y0;
+  return !(x == 0 && y == 0 && w == LCD_W && h == LCD_H);
+}
+
+void faceForceFull() { s_prevPlain = false; }

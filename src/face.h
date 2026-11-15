@@ -120,6 +120,8 @@ struct FaceText {
 void faceLerp(FaceState& cur, const FaceState& target, float k);   // k = 0..1 per frame
 void faceRender(const FaceState& f, const FaceText& txt, float crankAngleDeg, float blinkOpen,
                 float glow, float t);
+bool faceDirtyRect(int& x, int& y, int& w, int& h);   // the area the last faceRender changed; false = whole screen
+void faceForceFull();                                   // next frame redraws everything (something else drew on the canvas)
 
 // Text helper for other screens (menu): design-space coordinates, centered unless left/right
 enum class Align : uint8_t { Center, Left, Right };
