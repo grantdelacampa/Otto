@@ -335,6 +335,7 @@ static void recordTurn(uint32_t now) {
   int n = 0;
   for (uint32_t tt : s_turnTimes) if (tt && now - tt < 30000) n++;
   if (n >= 5) {
+    Serial.println("motion: dizzy (5 turns in 30 s)");
     brainEvent(Expr::Dizzy, 2500);
     memset(s_turnTimes, 0, sizeof(s_turnTimes));
   }
@@ -399,7 +400,7 @@ void motionUpdate(uint32_t now) {
   if (s_lon < -g_set.brake) {
     s_brakeMs += ms;
     if (s_brakeMs >= 150) {
-      if (s_brakeMs - ms < 150) tripHard(Hard::Brake);
+      if (s_brakeMs - ms < 150) { tripHard(Hard::Brake); Serial.printf("motion: braking %.2f g\n", -s_lon); }
       brainEvent(Expr::Braking, 900);
     }
   } else s_brakeMs = 0;
@@ -408,7 +409,10 @@ void motionUpdate(uint32_t now) {
   if (s_lon > g_set.accel) {
     s_accelMs += ms;
     if (s_accelMs >= 250) {
-      if (s_accelMs - ms < 250) tripHard(Hard::Accel);
+      if (s_accelMs - ms < 250) {
+        tripHard(Hard::Accel);
+        Serial.printf("motion: %s %.2f g\n", g_set.v8On && s_lon > g_set.v8 ? "V8 launch" : "accel", s_lon);
+      }
       if (g_set.v8On && s_lon > g_set.v8) brainEvent(Expr::V8, 1800);
       else brainEvent(Expr::Accel, 900);
     }
@@ -419,21 +423,21 @@ void motionUpdate(uint32_t now) {
     s_turnLMs += ms;
     if (s_turnLMs >= 200) {
       brainEvent(Expr::TurnLeft, 600);
-      if (!s_turnLatched) { s_turnLatched = true; recordTurn(now); tripHard(Hard::Turn); }
+      if (!s_turnLatched) { s_turnLatched = true; Serial.printf("motion: turn left %.0f deg/s\n", s_yaw); recordTurn(now); tripHard(Hard::Turn); }
     }
   } else s_turnLMs = 0;
   if (s_yaw < -g_set.turn) {
     s_turnRMs += ms;
     if (s_turnRMs >= 200) {
       brainEvent(Expr::TurnRight, 600);
-      if (!s_turnLatched) { s_turnLatched = true; recordTurn(now); tripHard(Hard::Turn); }
+      if (!s_turnLatched) { s_turnLatched = true; Serial.printf("motion: turn right %.0f deg/s\n", -s_yaw); recordTurn(now); tripHard(Hard::Turn); }
     }
   } else s_turnRMs = 0;
   if (fabsf(s_yaw) < g_set.turn * 0.6f) s_turnLatched = false;
 
   // bumps
   if (bumpG > g_set.bump) {
-    if (now - s_lastBump > 500) tripHard(Hard::Bump);
+    if (now - s_lastBump > 500) { tripHard(Hard::Bump); Serial.printf("motion: bump %.2f g\n", bumpG); }
     s_lastBump = now;
     brainEvent(Expr::Bump, 700);
   }
