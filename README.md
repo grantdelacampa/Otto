@@ -73,7 +73,8 @@ Designed expressions (docs/design) and what triggers them:
 | SEHR GUT | 10 minutes of smooth driving (no hard braking, launches or bumps) | `sehrgut` |
 
 Every other Rotor screen (turns, bumps, dizzy, battery, holidays, drag tree, guard, cabin
-temperature, car show, …) is redrawn in Otto's style. Try any with `expr <name> [ms]`, or the
+temperature, car show, …) is redrawn in Otto's style (the cabin cards need a temperature sensor this
+board doesn't have, so they only show in the face tester). Try any with `expr <name> [ms]`, or the
 face tester on the tuning page.
 
 Greetings: Guten Morgen! · Guten Tag! · Guten Abend! · Willkommen! · Hallo! · Los geht's! ·

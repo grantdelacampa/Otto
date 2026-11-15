@@ -4,59 +4,63 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OTTO Tuning</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=VT323&display=swap">
 <style>
+  /* Otto's palette (docs/design/Otto.dc.html). Style: a calm late-90s Mercedes dash - system fonts
+     (the page also runs from Otto's own Wi-Fi, which has no internet), thin rules, soft corners. */
   :root {
-    --bg: #1b2029; --panel: #1d232d; --deep: #0d1117; --teal: #7cc8ff; --teal-dim: #4c7a9c;   /* Otto ice blue (name kept from Rotor) */
-    --pink: #ff6aa2; --yellow: #f4dc4b; --gray: #9aa7b6; --line: #2f3a47; --ink: #12161c;
+    --bg: #1b2029; --panel: #1f2631; --deep: #0d1117; --teal: #7cc8ff; --teal-dim: #4c7a9c;   /* Otto ice blue (name kept from Rotor) */
+    --pink: #ff6aa2; --yellow: #f4dc4b; --gray: #9aa7b6; --line: #2f3a47; --ink: #12161c; --silver: #d6dee8;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --num: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+    --r: 8px;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--teal); font-family: 'Chakra Petch', system-ui, sans-serif; }
-  .mono { font-family: 'VT323', ui-monospace, monospace; }
+  body { margin: 0; background: var(--bg); color: var(--silver); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  .mono { font-family: var(--num); font-variant-numeric: tabular-nums; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  h1 { margin: 0; font-size: 22px; letter-spacing: 4px; }
-  .stripe { height: 5px; background: repeating-linear-gradient(90deg, var(--yellow) 0 22px, transparent 22px 34px); }
-  button { font-family: inherit; font-weight: 700; letter-spacing: 2px; font-size: 14px; min-height: 44px; padding: 0 16px;
-           background: transparent; color: var(--teal); border: 1.5px solid var(--teal); cursor: pointer; }
-  button.yellow { color: var(--yellow); border-color: var(--yellow); }
-  button.pink { color: var(--pink); border-color: var(--pink); }
-  button.solid { background: var(--teal); color: var(--ink); }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 3px; color: var(--silver); }
+  .stripe { height: 1px; background: linear-gradient(90deg, transparent, var(--teal-dim) 12%, var(--teal-dim) 88%, transparent); }
+  button { font-family: inherit; font-weight: 600; letter-spacing: 1px; font-size: 13px; min-height: 44px; padding: 0 16px;
+           background: transparent; color: var(--teal); border: 1px solid var(--teal-dim); border-radius: var(--r); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--teal); }
+  button.yellow { color: var(--yellow); border-color: rgba(244,220,75,.6); }
+  button.pink { color: var(--pink); border-color: rgba(255,106,162,.6); }
+  button.solid { background: var(--teal); color: var(--ink); border-color: var(--teal); }
   button:disabled, input:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
   .main { display: flex; gap: 16px; flex-wrap: wrap; }
-  .side { flex: 1 1 260px; max-width: 320px; border: 1.5px solid var(--teal); background: var(--panel); padding: 16px;
+  .side { flex: 1 1 260px; max-width: 320px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 16px;
           display: flex; flex-direction: column; gap: 12px; }
   .content { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; font-size: 20px; color: var(--gray); }
-  .stats b { color: var(--teal); font-weight: 400; }
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; font-size: 14px; color: var(--gray); }
+  .stats b { color: var(--teal); font-weight: 500; }
   .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-  .tabs button { flex: 1 1 100px; border-color: var(--teal-dim); }
+  .tabs button { flex: 1 1 100px; border-color: var(--line); color: var(--gray); }
   .tabs button[aria-selected="true"] { background: var(--teal); color: var(--ink); border-color: var(--teal); }
-  .panel { border: 1.5px solid var(--teal); background: var(--panel); padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .panel { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
   .row { display: flex; flex-direction: column; gap: 2px; }
   .row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .row label { font-weight: 700; letter-spacing: 2px; font-size: 14px; }
-  .row .val { font-family: 'VT323', monospace; font-size: 26px; color: var(--pink); }
-  .row .note { font-family: 'VT323', monospace; font-size: 17px; color: var(--gray); }
+  .row label { font-weight: 600; letter-spacing: 1px; font-size: 13px; color: var(--silver); }
+  .row .val { font-family: var(--num); font-variant-numeric: tabular-nums; font-size: 17px; color: var(--pink); }
+  .row .note { font-size: 13px; color: var(--gray); }
   input[type=range] { width: 100%; height: 30px; margin: 0; accent-color: var(--teal); }
   .toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-  .toggle { display: flex; justify-content: space-between; align-items: center; border-color: var(--teal-dim); color: var(--gray); }
-  .toggle[aria-pressed="true"] { background: rgba(124,200,255,.12); border-color: var(--teal); color: var(--teal); }
-  .toggle span:last-child { font-family: 'VT323', monospace; font-size: 22px; }
-  .toggle[aria-pressed="true"] span:last-child { color: var(--yellow); }
+  .toggle { display: flex; justify-content: space-between; align-items: center; border-color: var(--line); color: var(--gray); text-align: left; }
+  .toggle[aria-pressed="true"] { background: rgba(124,200,255,.10); border-color: var(--teal-dim); color: var(--silver); }
+  .toggle span:last-child { font-family: var(--num); font-size: 14px; }
+  .toggle[aria-pressed="true"] span:last-child { color: var(--teal); }
   .btnrow { display: flex; gap: 10px; flex-wrap: wrap; }
-  select, input[type=text] { font-family: 'VT323', monospace; font-size: 20px; background: var(--deep); color: var(--teal);
-           border: 1.5px solid var(--teal-dim); min-height: 44px; padding: 0 10px; }
+  select, input[type=text] { font-family: var(--sans); font-size: 15px; background: var(--deep); color: var(--silver);
+           border: 1px solid var(--line); border-radius: var(--r); min-height: 44px; padding: 0 10px; }
   input[type=text] { flex: 1 1 200px; }
-  .lock { font-family: 'VT323', monospace; font-size: 20px; padding: 6px 10px; border: 1.5px solid var(--pink); color: var(--pink); display: none; }
+  .lock { font-size: 14px; padding: 8px 12px; border: 1px solid rgba(255,106,162,.6); border-radius: var(--r); color: var(--pink); display: none; }
   .lock.on { display: block; }
-  footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-family: 'VT323', monospace; font-size: 19px; }
+  footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--gray); }
   #msg { color: var(--yellow); }
   canvas { display: block; max-width: 100%; }
   .chartbox { overflow-x: auto; }
   .hidden { display: none !important; }
-  .legend { font-family: 'VT323', monospace; font-size: 18px; color: var(--gray); display: flex; gap: 14px; flex-wrap: wrap; }
+  .legend { font-size: 13px; color: var(--gray); display: flex; gap: 14px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -64,7 +68,7 @@
   <header>
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <h1>OTTO // TUNING</h1>
-      <span id="conn" class="mono" style="font-size:20px;color:var(--pink)">NOT CONNECTED</span>
+      <span id="conn" style="font-size:14px;letter-spacing:1px;color:var(--pink)">NOT CONNECTED</span>
     </div>
     <div class="btnrow">
       <button id="btnConnect" class="solid" type="button">CONNECT</button>
@@ -72,14 +76,14 @@
     </div>
   </header>
   <div class="stripe"></div>
-  <p id="nobt" class="mono hidden" style="font-size:20px;color:var(--pink);margin:0">
+  <p id="nobt" class="hidden" style="font-size:14px;color:var(--pink);margin:0">
     This browser can't use Bluetooth. On a phone (iPhone too): Otto's menu -> WI-FI TUNING, join his Wi-Fi, then open http://192.168.4.1/ in Safari or Chrome. On a computer: Chrome or Edge, opened from http://localhost (see README).
   </p>
 
   <div class="main">
     <aside class="side">
       <canvas id="gmeter" width="280" height="280" role="img" aria-label="Live g-force meter with last drive peaks"></canvas>
-      <div class="mono" style="font-size:18px;color:var(--gray);text-align:center">LIVE G <span id="gnow" style="color:var(--pink)">--</span> · <span style="color:var(--yellow)">PEAKS</span></div>
+      <div class="mono" style="font-size:13px;color:var(--gray);text-align:center">LIVE G <span id="gnow" style="color:var(--pink)">--</span> · <span style="color:var(--yellow)">PEAKS</span></div>
       <div class="stats mono">
         <div>BAT <b id="sBat">--</b></div><div>TEMP <b id="sTemp">--</b></div><div>OBD <b id="sObd">--</b></div>
         <div>FACE <b id="sExpr">--</b></div><div>RPM <b id="sRpm">--</b></div><div>COOLANT <b id="sCool">--</b></div>
@@ -133,7 +137,7 @@
       <div class="panel hidden" data-panel="update">
         <div class="row">
           <div class="top"><label for="fwFile">FIRMWARE FILE (.bin)</label><span class="val" id="fwPct">--</span></div>
-          <input id="fwFile" type="file" accept=".bin" style="font-family:'VT323',monospace;font-size:18px;color:var(--teal)">
+          <input id="fwFile" type="file" accept=".bin" style="font-size:14px;color:var(--silver)">
           <div style="height:14px;border:1.5px solid var(--teal-dim);background:var(--deep)"><div id="fwBar" style="height:100%;width:0;background:var(--teal)"></div></div>
           <div class="note" id="fwStatus">Build with "pio run". The file is .pio/build/otto/firmware.bin. Takes about 3 minutes; keep this page open and the car parked.</div>
         </div>
@@ -244,7 +248,7 @@ const TOGGLES = {
   pDisplay: [],
   pSound: [['greetOn', 'GERMAN WAKE GREETINGS']],
   pCar: [['revOn', 'REV REACTIONS'], ['launchOn', 'AUTO 0-60 TIMING'], ['treePro', 'PRO TREE (ALL AMBERS, .400)'], ['voiceOn', 'VOICE COMMANDS ("HI ESP")'], ['guardOn', 'GUARD MODE (BUMPS WHILE PARKED)'],
-         ['breakOn', 'BREAK REMINDER (2 H)'], ['cabinOn', 'HOT / COLD CABIN FACES'], ['milestoneOn', 'MILESTONES + MISSED YOU'], ['summaryOn', 'DRIVE SUMMARY'],
+         ['breakOn', 'BREAK REMINDER (2 H)'], ['milestoneOn', 'MILESTONES + MISSED YOU'], ['summaryOn', 'DRIVE SUMMARY'],
          ['motionWake', 'MOTION WAKES OTTO'],
          ['holidaysOn', 'HOLIDAY SCREENS'], ['obdOn', 'OBD-II ADAPTER (BLE ELM327)']],
 };
@@ -613,7 +617,7 @@ function drawMeter() {
   for (const g of [0.2, 0.4, 0.6]) { x.beginPath(); x.arc(cx, cy, g * scale, 0, 7); x.stroke(); }
   x.beginPath(); x.moveTo(cx, cy - R); x.lineTo(cx, cy + R); x.moveTo(cx - R, cy); x.lineTo(cx + R, cy); x.stroke();
   x.strokeStyle = col('--teal-dim'); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.stroke();
-  x.fillStyle = col('--gray'); x.font = '16px VT323, monospace'; x.textAlign = 'center';
+  x.fillStyle = col('--gray'); x.font = '12px ui-monospace, Menlo, Consolas, monospace'; x.textAlign = 'center';
   x.fillText('BRAKE', cx, 22); x.fillText('ACCEL', cx, W - 12);
   if (!telem) return;
   const [pb, pa, pl] = telem.pk;
@@ -635,7 +639,7 @@ function drawChart() {
   const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
   x.fillStyle = col('--deep'); x.fillRect(0, 0, W, H);
   const maxG = 1.0, yOf = g => H - pad - (g / maxG) * (H - 2 * pad);
-  x.strokeStyle = col('--line'); x.lineWidth = 1; x.fillStyle = col('--gray'); x.font = '15px VT323, monospace';
+  x.strokeStyle = col('--line'); x.lineWidth = 1; x.fillStyle = col('--gray'); x.font = '11px ui-monospace, Menlo, Consolas, monospace';
   for (const g of [0, 0.25, 0.5, 0.75, 1]) { x.beginPath(); x.moveTo(pad, yOf(g)); x.lineTo(W, yOf(g)); x.stroke(); x.fillText(g.toFixed(2), 2, yOf(g) + 4); }
   if (!n) return;
   const xOf = i => pad + (i / Math.max(1, n - 1)) * (W - pad - 6);

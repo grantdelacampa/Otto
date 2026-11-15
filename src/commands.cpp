@@ -53,6 +53,19 @@ static bool cardDemo(Expr e, uint32_t ms) {
     case Expr::LaunchReady:  brainSetCaption("0-60 ARMED"); break;
     case Expr::CheckEngine:  brainSetAnswer("CHECK ENGINE", "P0171", "CODE 1 OF 2 - LAMP ON"); break;
     case Expr::WifiTune:     brainSetAnswer("WI-FI OTTO-430C", "otto1a2b", "THEN OPEN 192.168.4.1"); break;
+    // faces whose words come from the code that triggers them: without these `expr` showed
+    // whatever text the last card left behind ("LET'S GO" on the break card, bench Nov 15 2026)
+    case Expr::LaunchTree:   brainSetCaption("TREE .500"); break;
+    case Expr::LaunchGo:     brainSetGreeting("Los geht's!", "LET'S GO", Eye::Chevron); break;
+    case Expr::LaunchRed:    brainSetCaption("RED LIGHT!"); break;
+    case Expr::LaunchRecord: brainSetGreeting("Neuer Rekord!", "NEW RECORD", Eye::Happy); brainSetCaption("0-60 5.8 S"); break;
+    case Expr::Guard:        brainSetAnswer("SOMEONE BUMPED ME", "3:42 PM", "2 BUMPS"); break;
+    case Expr::MissedYou:    brainSetGreeting("Lange nicht gesehen!", "LONG TIME NO SEE", Eye::Happy); brainSetCaption("8 DAYS"); break;
+    case Expr::Milestone:    brainSetAnswer("WE MADE IT", "100", "DRIVES TOGETHER"); break;
+    case Expr::BreakTime:    brainSetGreeting("Pause?", "TIME FOR A BREAK?", Eye::Content); brainSetCaption("2 H 10 MIN"); break;
+    case Expr::HotCabin:     brainSetGreeting("Heiß!", "54 C INSIDE", Eye::Half); brainSetCaption("AIR IT OUT"); break;
+    case Expr::ColdCabin:    brainSetGreeting("Kalt!", "2 C INSIDE", Eye::Dot); brainSetCaption("BRRR!"); break;
+    case Expr::ShowCard:     brainSetAnswer(g_set.showL1, g_set.showL2, "TAP ME!"); break;
     default: return false;
   }
   brainEventPrio(e, ms, 120);

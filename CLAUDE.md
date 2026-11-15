@@ -43,6 +43,9 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   petted, sleepy, sehr gut. Palette: body silver #D6DEE8, eyes/brows ice blue #7CC8FF, pink
   #FF6AA2 + yellow #F4DC4B accents, housing #3A4452, sleepy body #8A929C, on #0D1117.
   Every other screen was derived from Rotor's in this style (owner OK'd that; replace freely).
+- Tuning page style (Nov 15 2026): Otto's palette, system fonts (no Google Fonts: Otto's Wi-Fi has no
+  internet), thin rules, 8 px corners - a calm 90s-Mercedes look instead of Rotor's 80s pixel font +
+  hazard stripe. No cabin-faces toggle (no SHTC3).
 - Fonts: the Japan Gothic font from Rotor is kept for greetings because it covers Latin-1
   (umlauts, ß). Font2/Font4/Font7 are ASCII only — keep umlauts out of captions/glosses.
 
