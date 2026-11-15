@@ -401,9 +401,14 @@ esp_err_t sr_stop(void) {
      * Waiting for all task stopped
      * TODO: A task creation failure cannot be handled correctly now
      * */
-  vTaskDelete(g_sr_data->handle_task);
-  xEventGroupSetBits(g_sr_data->event_group, NEED_DELETE);
-  xEventGroupWaitBits(g_sr_data->event_group, NEED_DELETE | FEED_DELETED | DETECT_DELETED, 1, 1, portMAX_DELAY);
+  // Otto: a task that failed to start (out of internal RAM) has a NULL handle. vTaskDelete(NULL)
+  // deletes the *calling* task - the main loop - and waiting for its "deleted" bit never ends.
+  if (g_sr_data->handle_task) vTaskDelete(g_sr_data->handle_task);
+  if (g_sr_data->event_group) {
+    EventBits_t wait = (g_sr_data->feed_task ? FEED_DELETED : 0) | (g_sr_data->detect_task ? DETECT_DELETED : 0);
+    xEventGroupSetBits(g_sr_data->event_group, NEED_DELETE);
+    if (wait) xEventGroupWaitBits(g_sr_data->event_group, wait, 1, 1, portMAX_DELAY);
+  }
 
   if (g_sr_data->result_que) {
     vQueueDelete(g_sr_data->result_que);

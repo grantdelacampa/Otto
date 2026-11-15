@@ -73,7 +73,7 @@
   </header>
   <div class="stripe"></div>
   <p id="nobt" class="mono hidden" style="font-size:20px;color:var(--pink);margin:0">
-    This browser can't use Bluetooth. Use Chrome or Edge on a computer or Android, opened from http://localhost (see README).
+    This browser can't use Bluetooth. On a phone (iPhone too): Otto's menu -> WI-FI TUNING, join his Wi-Fi, then open http://192.168.4.1/ in Safari or Chrome. On a computer: Chrome or Edge, opened from http://localhost (see README).
   </p>
 
   <div class="main">
@@ -264,6 +264,40 @@ let cfg = {}, telem = null, lastMove = 0, logRecs = [], logExpect = 0;
 const pending = {}; let pendTimer = null;
 const $ = id => document.getElementById(id);
 
+// Two ways to reach Otto:
+//  - Bluetooth (Web Bluetooth): this page served from your computer / a website, CONNECT picks OTTO
+//  - Wi-Fi: Otto's own network (menu -> WI-FI TUNING, or `wifi on`), page opened from Otto at
+//    http://192.168.4.1/ - works in plain Safari / Chrome on a phone, no app needed.
+// Wi-Fi mode = this page came from Otto himself. Decided by asking him (wifiProbe below), not by the
+// address: iOS Safari rewrites typed addresses, which fooled an address check.
+let WIFI = false;
+async function wifiProbe() {
+  if (location.protocol === 'file:') return false;
+  try {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), 2000);
+    const r = await fetch('/api/stat', { cache: 'no-store', signal: c.signal });
+    clearTimeout(t);
+    if (!r.ok) return false;
+    const j = await r.json();
+    return typeof j.bat === 'number';
+  } catch { return false; }
+}
+let pollTimer = null;
+async function httpCmd(text) {        // POST a command; each reply line goes where a BLE reply would
+  const r = await fetch('/api/cmd', { method: 'POST', body: text, headers: { 'Content-Type': 'text/plain' } });
+  const t = await r.text();
+  for (const line of t.split('\n')) {
+    if (!line) continue;
+    let j = null;
+    if (line[0] === '{') { try { j = JSON.parse(line); } catch {} }
+    handleJson(j || { msg: line });
+  }
+}
+async function readCfg() {
+  if (WIFI) return await (await fetch('/api/cfg')).json();
+  return JSON.parse(dec.decode(await chCfg.readValue()));
+}
+
 function msg(t) { $('msg').textContent = t; }
 
 // ---------------------------------------------------------------- UI build
@@ -400,7 +434,7 @@ const enc = new TextEncoder(), dec = new TextDecoder();
 
 async function send(text) {
   if (!chCmd) return;
-  try { await chCmd.writeValueWithResponse(enc.encode(text)); }
+  try { if (WIFI) await httpCmd(text); else await chCmd.writeValueWithResponse(enc.encode(text)); }
   catch (e) { msg('send failed: ' + e.message); }
 }
 
@@ -414,11 +448,44 @@ async function flushCfg() {
   if (!chCfg) return;
   const body = JSON.stringify(pending);
   for (const k of Object.keys(pending)) delete pending[k];
-  try { await chCfg.writeValueWithResponse(enc.encode(body)); $('saved').textContent = 'SAVED TO DEVICE'; }
+  try {
+    if (WIFI) await fetch('/api/cfg', { method: 'POST', body, headers: { 'Content-Type': 'text/plain' } });
+    else await chCfg.writeValueWithResponse(enc.encode(body));
+    $('saved').textContent = 'SAVED TO DEVICE';
+  }
   catch (e) { msg('save failed: ' + e.message); }
 }
 
+async function wifiConnect() {
+  // In Wi-Fi mode the "characteristics" are just markers that we're linked (the rest of the page
+  // checks them); requests go to Otto's web server.
+  try {
+    $('conn').textContent = 'CONNECTING…';
+    chCmd = chCfg = chTel = chLog = chOta = 'wifi';
+    const now = Math.floor(Date.now() / 1000), tz = -new Date().getTimezoneOffset();
+    await send('hello tuner');
+    await send(`time ${now} ${tz}`);
+    cfg = await readCfg();
+    applyCfgToUi();
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try { handleJson(await (await fetch('/api/stat')).json()); }
+      catch { $('conn').textContent = 'WI-FI LOST?'; }
+    }, 300);
+    $('conn').textContent = 'LINKED // OTTO (WI-FI)';
+    $('conn').style.color = 'var(--teal)';
+    $('btnConnect').disabled = true; $('btnDisconnect').disabled = false;
+    msg('connected over Wi-Fi · clock synced');
+    $('btnFw').disabled = !$('fwFile').files.length;
+  } catch (e) {
+    chCmd = chCfg = chTel = chLog = chOta = null;
+    msg(e.message);
+    $('conn').textContent = 'NOT CONNECTED';
+  }
+}
+
 async function connect() {
+  if (WIFI) return wifiConnect();
   if (!navigator.bluetooth) { $('nobt').classList.remove('hidden'); return; }
   try {
     dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }, { namePrefix: 'OTTO' }], optionalServices: [SVC] });
@@ -438,7 +505,7 @@ async function connect() {
     await send('hello tuner');
     const now = Math.floor(Date.now() / 1000), tz = -new Date().getTimezoneOffset();
     await send(`time ${now} ${tz}`);
-    cfg = JSON.parse(dec.decode(await chCfg.readValue()));
+    cfg = await readCfg();
     applyCfgToUi();
     $('conn').textContent = 'LINKED // ' + (dev.name || 'OTTO');
     $('conn').style.color = 'var(--teal)';
@@ -461,6 +528,10 @@ function onDisconnected() {
 function onTelem(ev) {
   let j;
   try { j = JSON.parse(dec.decode(ev.target.value)); } catch { return; }
+  handleJson(j);
+}
+
+function handleJson(j) {
   if (j.vsh) { vib = { bin: j.vsh[0], n: j.vsh[1], amp: new Array(j.vsh[1]).fill(0), got: 0 }; return; }
   if (j.vs && vib) {
     for (let i = 1; i < j.vs.length; i++) vib.amp[j.vs[0] + i - 1] = j.vs[i];
@@ -582,9 +653,37 @@ function drawChart() {
 }
 
 // ------------------------------------------------------------- firmware update
+function uploadFirmwareWifi(file) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest(), fd = new FormData();
+    fd.append('firmware', file, 'firmware.bin');
+    x.open('POST', '/api/ota?size=' + file.size);
+    x.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const p = e.loaded / e.total;
+      $('fwBar').style.width = (p * 100).toFixed(1) + '%';
+      $('fwPct').textContent = Math.round(p * 100) + '%';
+      $('fwStatus').textContent = p < 1 ? 'sending…' : 'checking the image…';
+    };
+    x.onload = () => (x.status === 200 ? resolve() : reject(new Error(x.responseText || x.status)));
+    x.onerror = () => reject(new Error('connection lost'));
+    x.send(fd);
+  });
+}
+
 async function uploadFirmware() {
   const file = $('fwFile').files[0];
   if (!file || !chCmd) return;
+  if (WIFI) {
+    $('btnFw').disabled = true;
+    try {
+      await uploadFirmwareWifi(file);
+      $('fwStatus').textContent = 'done. Otto is restarting; join his Wi-Fi again and reload this page.';
+    } catch (err) {
+      $('fwStatus').textContent = 'update failed: ' + err.message + ' (Otto keeps its old firmware)';
+    } finally { $('btnFw').disabled = false; }
+    return;
+  }
   if (!chOta) { $('fwStatus').textContent = 'This Otto firmware has no wireless update yet. Flash once over USB first.'; return; }
   const buf = new Uint8Array(await file.arrayBuffer());
   otaCancel = false;
@@ -638,13 +737,31 @@ setInterval(() => {
 buildPanels();
 drawMeter();
 drawChart();
-if (!navigator.bluetooth) $('nobt').classList.remove('hidden');
 $('btnConnect').onclick = connect;
-$('btnDisconnect').onclick = () => dev && dev.gatt.connected && dev.gatt.disconnect();
+wifiProbe().then(w => {
+  WIFI = w;
+  if (WIFI) connect();
+  else if (!navigator.bluetooth) $('nobt').classList.remove('hidden');
+});
+$('btnDisconnect').onclick = () => {
+  if (WIFI) { clearInterval(pollTimer); onDisconnected(); return; }
+  dev && dev.gatt.connected && dev.gatt.disconnect();
+};
 $('btnCal').onclick = () => { send('calibrate'); msg('hold the car still for 2 seconds'); };
 $('btnFlip').onclick = () => send('flipfwd');
 $('btnFace').onclick = () => send('expr ' + $('faceSel').value + ' 4000');
-$('btnLog').onclick = () => { if (chCmd) { $('logInfo').textContent = 'requesting…'; send('log'); } };
+$('btnLog').onclick = async () => {
+  if (!chCmd) return;
+  $('logInfo').textContent = 'requesting…';
+  if (!WIFI) { send('log'); return; }
+  try {
+    const rows = await (await fetch('/api/log')).json();
+    logRecs = rows.map(r => ({ brake: r[0], accel: r[1], lat: r[2], yaw: r[3], bump: r[4] }));
+    $('logInfo').textContent = `${logRecs.length} seconds of data`;
+    $('btnCsv').disabled = logRecs.length === 0;
+    drawChart();
+  } catch (e) { $('logInfo').textContent = 'failed: ' + e.message; }
+};
 $('btnCsv').onclick = saveCsv;
 $('btnResetPeaks').onclick = () => send('resetpeaks');
 
@@ -684,7 +801,7 @@ drawVib();
 $('btnResetAll').onclick = async () => {
   if (!confirm('Reset all tuning settings to defaults? (mount calibration is kept)')) return;
   await send('reset');
-  cfg = JSON.parse(dec.decode(await chCfg.readValue()));
+  cfg = await readCfg();
   applyCfgToUi();
 };
 $('btnCmd').onclick = () => { const v = $('cmdLine').value.trim(); if (v) send(v); };

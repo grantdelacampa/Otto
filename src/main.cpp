@@ -31,10 +31,20 @@
 #include "ota.h"
 #include "holidays.h"
 #include "obd.h"
+#include "wifitune.h"
 
 // Survive deep sleep
 RTC_DATA_ATTR static float s_sleepRef[3] = {0, 0, 0};
 RTC_DATA_ATTR static bool s_haveRef = false;
+// Restarted on purpose (after Wi-Fi tuning): no boot show. RTC_DATA_ATTR is re-initialized on a
+// software restart (it only survives deep sleep), so this uses NOINIT memory + a magic number.
+RTC_NOINIT_ATTR static uint32_t s_quietBoot;
+static const uint32_t QUIET_MAGIC = 0x0770A11Eu;
+void requestQuietReboot() {                       // wifitune.cpp: Wi-Fi doesn't hand all its RAM back
+  s_quietBoot = QUIET_MAGIC;
+  Serial.flush();
+  ESP.restart();
+}
 RTC_DATA_ATTR static bool s_hotSleep = false;     // sleeping because it got too hot
 RTC_DATA_ATTR static bool s_wokeByVib = false;    // woken by engine vibration
 RTC_DATA_ATTR static bool s_womArmed = false;     // the IMU's wake-on-motion watched this sleep
@@ -187,6 +197,7 @@ static void quickWakeCheck() {
 static void showFor(uint32_t ms);
 
 static void goToSleep() {
+  wifiTuneStop();
   if (g_set.summaryOn && tripShowSummary()) showFor(5000);
   if (extrasShowMilestone()) showFor(5000);
   brainEventPrio(Expr::Sleep, 4000, 99);
@@ -205,6 +216,7 @@ static void goToSleep() {
 }
 
 static void hotSleep() {
+  wifiTuneStop();
   brainEventPrio(Expr::HotOff, 4000, 105);
   audioChirp(900, 400, 300);
   showFor(3000);
@@ -218,6 +230,7 @@ static void hotSleep() {
 }
 
 static void powerOff() {
+  wifiTuneStop();
   brainEventPrio(Expr::Sleep, 4000, 99);
   audioChirp(1200, 500, 250);
   showFor(1200);
@@ -325,7 +338,14 @@ void setup() {
   obdInit();
 
   uint32_t now = millis();
-  if (coldBoot) {
+  bool quiet = s_quietBoot == QUIET_MAGIC;
+  s_quietBoot = 0;
+  if (quiet) {                               // back from Wi-Fi tuning: straight to idle
+    s_bootDone = now;
+    s_batPending = false;
+    brainEventPrio(Expr::Happy, 1500, 70);   // a smile while the motion chip settles (it reads a fake bump)
+    Serial.println("boot: quiet restart (after Wi-Fi tuning)");
+  } else if (coldBoot) {
     brainEvent(Expr::Boot, 3200);            // outline 1.5 s, eyes at 1.9 s, pumping at 2.3 s
     audioChirp(400, 1200, 300);
     scheduleGreeting(now, 3300, false);
@@ -396,6 +416,7 @@ void loop() {
   tripUpdate(now, dt);
   otaUpdate(now);
   obdUpdate(now);
+  wifiTuneUpdate(now);
 
   // greeting (on boot / wake / engine start)
   if (s_greetAt && (int32_t)(now - s_greetAt) >= 0) {
@@ -481,7 +502,7 @@ void loop() {
   }
 
   // sleep when parked with nothing connected
-  bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn();
+  bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn() || wifiTuneActive();
   if (g_motion.ok && g_motion.stillSecs > g_set.sleepMin * 60 && !bleAnyConnected() && !busy) s_wantSleep = true;
 
   if (s_wantOff && !otaActive()) powerOff();

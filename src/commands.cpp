@@ -21,11 +21,15 @@
 #include "holidays.h"
 #include "music.h"
 #include "obd.h"
+#include "wifitune.h"
 
 SpeedInput g_speed;
 void requestSleep();  // main.cpp
 
+void wifiTuneReply(const char* msg);   // wifitune.cpp
+
 static void reply(uint16_t src, const char* msg) {
+  if (src == SRC_HTTP) { wifiTuneReply(msg); return; }
   if (src == SRC_SERIAL) Serial.println(msg);
   else bleReply(src, msg);
 }
@@ -48,6 +52,7 @@ static bool cardDemo(Expr e, uint32_t ms) {
     case Expr::MenuOpening:  brainSetRing(0.6f); break;
     case Expr::LaunchReady:  brainSetCaption("0-60 ARMED"); break;
     case Expr::CheckEngine:  brainSetAnswer("CHECK ENGINE", "P0171", "CODE 1 OF 2 - LAMP ON"); break;
+    case Expr::WifiTune:     brainSetAnswer("WI-FI OTTO-430C", "otto1a2b", "THEN OPEN 192.168.4.1"); break;
     default: return false;
   }
   brainEventPrio(e, ms, 120);
@@ -111,6 +116,18 @@ void handleCommand(const char* raw, uint16_t src) {
     else if (!strcasecmp(a, "resetbest")) { launchResetBest(); reply(src, "best cleared"); }
   } else if (arg(line, "summary")) {
     if (!tripShowSummary()) reply(src, "no drive yet (needs 3+ min)");
+  } else if ((a = arg(line, "wifi"))) {          // Wi-Fi tuning mode: wifi [on|off]
+    if (!strcasecmp(a, "on")) wifiTuneStart();
+    else if (!strcasecmp(a, "off")) wifiTuneStop();
+    char b[160];
+    wifiTuneInfo(b, sizeof(b));
+    reply(src, b);
+  } else if (arg(line, "mem")) {                 // debug: free memory (internal RAM matters for Wi-Fi + voice)
+    char b[160];
+    snprintf(b, sizeof(b), "mem: internal %u free (largest block %u, lowest ever %u), PSRAM %u free",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    reply(src, b);
   } else if (arg(line, "reboot")) {              // restart the board (bench)
     reply(src, "rebooting");
     delay(100);
@@ -324,7 +341,7 @@ void handleCommand(const char* raw, uint16_t src) {
     brainEvent(Expr::Boop, 1200);
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
-    reply(src, "hello voice expr obd speed launch summary volume answer "
+    reply(src, "hello voice expr obd wifi mem perf reboot speed launch summary volume answer "
                "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {

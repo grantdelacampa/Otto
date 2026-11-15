@@ -13,11 +13,12 @@
 #include "extras.h"
 #include "holidays.h"
 #include "obd.h"
+#include "wifitune.h"
 #include <time.h>
 
 enum class Kind : uint8_t { Value, Toggle, Action, BdayPicker };
 enum class View : uint8_t { List, Edit, ConfirmCal, Info, BdayMonth, BdayDay };
-enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes };
+enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes, Wifi };
 
 struct Item {
   const char* name;
@@ -48,6 +49,7 @@ static Item s_items[] = {
   {"GUARD",        Kind::Toggle, nullptr, &g_set.guardOn, 0, 0, 0, Act::None},
   {"OBD ADAPTER",  Kind::Toggle, nullptr, &g_set.obdOn,   0, 0, 0, Act::None},
   {"ENGINE CODES", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Codes},
+  {"WI-FI TUNING", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Wifi},
   {"RECALIBRATE",  Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Recal},
   {"INFO",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Info},
   {"EXIT",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Exit},
@@ -115,6 +117,7 @@ void menuTap(float, float) {
           case Act::Recal: s_view = View::ConfirmCal; break;
           case Act::Info: s_view = View::Info; break;
           case Act::Codes: menuClose(true); obdShowCodes(); break;
+          case Act::Wifi: menuClose(true); if (wifiTuneActive()) wifiTuneStop(); else wifiTuneStart(); break;
           case Act::Exit: menuClose(true); break;
           default: break;
         }
