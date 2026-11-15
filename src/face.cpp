@@ -9,8 +9,11 @@ static float g_fcx = 120, g_fcy = 120, g_fs = 1;
 static float g_glow = 0.7f;
 
 // face-space (rotor + eyes): follows the mini-face transform
-static inline float FX(float x) { return (g_fcx + (x - 120) * g_fs) * S; }
-static inline float FY(float y) { return (g_fcy + (y - 120) * g_fs) * S; }
+// Where the piston strokes go: the canvas, or the piston cache (then shifted by its origin s_ox/s_oy)
+static LGFX_Sprite* s_dst = &canvas;
+static float s_ox = 0, s_oy = 0;
+static inline float FX(float x) { return (g_fcx + (x - 120) * g_fs) * S - s_ox; }
+static inline float FY(float y) { return (g_fcy + (y - 120) * g_fs) * S - s_oy; }
 static inline float FW(float w) { return w * g_fs * S; }
 // absolute design space (overlays, text)
 static inline float AX(float x) { return x * S; }
@@ -50,7 +53,7 @@ void faceLerp(FaceState& c, const FaceState& t, float k) {
 
 // ------------------------------------------------------------ primitives --
 static void fLine(float x0, float y0, float x1, float y1, float w, uint16_t c) {
-  canvas.drawWideLine(FX(x0), FY(y0), FX(x1), FY(y1), FW(w) * 0.5f, c);
+  s_dst->drawWideLine(FX(x0), FY(y0), FX(x1), FY(y1), FW(w) * 0.5f, c);
 }
 static void aLine(float x0, float y0, float x1, float y1, float w, uint16_t c) {
   canvas.drawWideLine(AX(x0), AY(y0), AX(x1), AY(y1), AW(w) * 0.5f, c);
@@ -222,11 +225,52 @@ static void glowLine(float x0, float y0, float x1, float y1, float w, uint16_t c
   float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy);
   if (len > 0.5f) {
     float nx = -dy / len * r, ny = dx / len * r;
-    canvas.fillTriangle(ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, c);
-    canvas.fillTriangle(ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny, c);
+    s_dst->fillTriangle(ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, c);
+    s_dst->fillTriangle(ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny, c);
   }
-  canvas.fillCircle(ax, ay, r, c);
+  s_dst->fillCircle(ax, ay, r, c);
 }
+
+// The piston body (fill, glow, outline, ring grooves) in its current pose. Filled with a colour one
+// step off the background, so the cache below can use the exact background as "transparent" and
+// still hide the rod's top end behind the piston.
+static const uint16_t COL_BG_FILL = COL_BG ^ 0x0001;
+static void drawPistonBody(const FaceState& f, bool glow, const float* qx, const float* qy) {
+  float cx, cy;
+  PP(100, 66, cx, cy);
+  for (int i = 0; i < PN; i++)
+    s_dst->fillTriangle(FX(cx), FY(cy), FX(qx[i]), FY(qy[i]), FX(qx[i + 1]), FY(qy[i + 1]), COL_BG_FILL);
+  int segs = (int)(PN * f.drawFrac + 0.5f);
+  float w = 5 * K * s_hs;
+  if (glow)
+    for (int i = 0; i < segs; i++) glowLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w + 6, s_bodyGlow);
+  for (int i = 0; i < segs; i++) {
+    if (f.dashed && (i & 1)) continue;
+    fLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w, s_body);
+  }
+  if (f.drawFrac < 0.99f) return;                 // boot: outline only until it's fully drawn
+  uint16_t ring = mix565(C_BG, s_body, 0.55f);    // piston ring grooves (design opacity .55)
+  pLine(67, 44, 133, 44, 3, ring);
+  pLine(67, 52, 133, 52, 3, ring);
+}
+
+// Piston cache: the body's smooth strokes cost ~30 ms a frame (bench, Nov 15 2026), but between
+// pose changes the piston only moves (the stroke). So it's drawn once into a sprite and copied into
+// place each frame; redrawn only when its shape or colours change (lean, size, brightness, glow).
+// Brightness is applied while copying (idle breathes, so the colour changes every frame): the cache
+// is drawn at full brightness in one hue, every pixel is "background -> hue by some amount", and the
+// copy maps that amount through a 64-entry table built for this frame's brightness.
+static uint16_t s_hue = COL_SILVER;                // body hue (silver / sleepy gray / lantern yellow)
+static float s_bright = 1, s_glowK = 0;            // body brightness, glow strength (fraction of hue)
+static LGFX_Sprite s_pc;
+struct PcKey { int16_t lean, hs, fs, glowK; uint16_t hue; bool glow; };
+static bool pcSame(const PcKey& a, const PcKey& b) {   // field by field (memcmp saw the padding byte)
+  return a.lean == b.lean && a.hs == b.hs && a.fs == b.fs && a.glowK == b.glowK && a.hue == b.hue && a.glow == b.glow;
+}
+static PcKey s_pk;
+static bool s_pkValid = false;
+static float s_pcRefX = 0, s_pcRefY = 0;          // where the wrist pin sits inside the sprite
+uint32_t g_pcRedraws = 0, g_pcWhy[6] = {0};                          // `perf`: cache redraws
 
 static void drawPiston(const FaceState& f) {
   bool glow = g_glow > 0.02f && !f.dashed && !f.gray;
@@ -245,27 +289,75 @@ static void drawPiston(const FaceState& f) {
   fLine(blx, bly, brx, bly, 4 * K, s_body);
   sRing(s_pinX, s_pinY, 10, 4, s_body);
 
-  // piston: filled with the background (hides the rod's top end), then glow + outline
   float ox[PN], oy[PN], qx[PN + 1], qy[PN + 1];
   pistonOutline(ox, oy);
   for (int i = 0; i < PN; i++) PP(ox[i], oy[i], qx[i], qy[i]);
   qx[PN] = qx[0]; qy[PN] = qy[0];
-  float cx, cy;
-  PP(100, 66, cx, cy);
-  for (int i = 0; i < PN; i++)
-    canvas.fillTriangle(FX(cx), FY(cy), FX(qx[i]), FY(qy[i]), FX(qx[i + 1]), FY(qy[i + 1]), COL_BG);
-  int segs = (int)(PN * f.drawFrac + 0.5f);
-  float w = 5 * K * s_hs;
-  if (glow)
-    for (int i = 0; i < segs; i++) glowLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w + 6, s_bodyGlow);
-  for (int i = 0; i < segs; i++) {
-    if (f.dashed && (i & 1)) continue;
-    fLine(qx[i], qy[i], qx[i + 1], qy[i + 1], w, s_body);
+
+  // boot (outline being drawn) and the dashed update face change every frame: draw directly
+  if (f.drawFrac < 0.99f || f.dashed) { drawPistonBody(f, glow, qx, qy); return; }
+
+  float px, py;
+  PP(100, 102, px, py);
+  float refX = FX(px), refY = FY(py);
+  // lean in half degrees (< 1 px at the piston's corners): idle tilt jitter redrew it constantly
+  PcKey k = {(int16_t)lroundf(atan2f(s_ls, s_lc) * RAD_TO_DEG * 2), (int16_t)lroundf(s_hs * 400),
+             (int16_t)lroundf(g_fs * 400), (int16_t)lroundf(s_glowK * 1000), s_hue, glow};
+  if (s_pkValid) {
+    extern uint32_t g_pcWhy[6];
+    g_pcWhy[0] += k.lean != s_pk.lean; g_pcWhy[1] += k.hs != s_pk.hs; g_pcWhy[2] += k.fs != s_pk.fs;
+    g_pcWhy[3] += k.hue != s_pk.hue; g_pcWhy[4] += k.glowK != s_pk.glowK; g_pcWhy[5] += k.glow != s_pk.glow;
   }
-  if (f.drawFrac < 0.99f) return;                 // boot: outline only until it's fully drawn
-  uint16_t ring = mix565(C_BG, s_body, 0.55f);    // piston ring grooves (design opacity .55)
-  pLine(67, 44, 133, 44, 3, ring);
-  pLine(67, 52, 133, 52, 3, ring);
+  if (!s_pkValid || !pcSame(k, s_pk)) {
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (int i = 0; i < PN; i++) {
+      float sx = FX(qx[i]), sy = FY(qy[i]);
+      x0 = fminf(x0, sx); x1 = fmaxf(x1, sx); y0 = fminf(y0, sy); y1 = fmaxf(y1, sy);
+    }
+    float m = FW(5 * K * s_hs + 6) * 0.5f + 3;     // glow / stroke half-width + a little
+    int ix = (int)floorf(x0 - m), iy = (int)floorf(y0 - m);
+    int w = (int)ceilf(x1 + m) - ix, h = (int)ceilf(y1 + m) - iy;
+    if (s_pc.width() < w || s_pc.height() < h) {
+      s_pc.deleteSprite();
+      s_pc.setColorDepth(16);
+      s_pc.setPsram(true);
+      if (!s_pc.createSprite(w + 8, h + 8)) { s_pkValid = false; drawPistonBody(f, glow, qx, qy); return; }
+    }
+    s_pc.fillScreen(COL_BG);
+    uint16_t body = s_body, bodyGlow = s_bodyGlow;  // full brightness in the cache
+    s_body = s_hue; s_bodyGlow = mix565(C_BG, s_hue, s_glowK);
+    s_dst = &s_pc; s_ox = ix; s_oy = iy;
+    drawPistonBody(f, glow, qx, qy);
+    s_dst = &canvas; s_ox = s_oy = 0;
+    s_body = body; s_bodyGlow = bodyGlow;
+    s_pcRefX = refX - ix; s_pcRefY = refY - iy;
+    s_pk = k; s_pkValid = true;
+    g_pcRedraws++;
+  }
+  // copy: background pixels stay transparent, the rest get this frame's brightness
+  uint16_t lut[64];
+  int gBg = (COL_BG >> 5) & 0x3F, gHue = (s_hue >> 5) & 0x3F;
+  for (int g = 0; g < 64; g++) {
+    float a = gHue != gBg ? (float)(g - gBg) / (gHue - gBg) : 0;
+    uint16_t c = mix565(C_BG, s_hue, fminf(1, fmaxf(0, a)) * s_bright);
+    lut[g] = (uint16_t)((c >> 8) | (c << 8));       // sprite buffers hold byte-swapped pixels
+  }
+  const uint16_t key = (uint16_t)((COL_BG >> 8) | (COL_BG << 8));
+  int dx = (int)lroundf(refX - s_pcRefX), dy = (int)lroundf(refY - s_pcRefY);
+  int sw = s_pc.width(), sh = s_pc.height();
+  const uint16_t* src = (const uint16_t*)s_pc.getBuffer();
+  uint16_t* dst = (uint16_t*)canvas.getBuffer();
+  int x0 = max(0, dx), x1 = min(LCD_W, dx + sw), y0 = max(0, dy), y1 = min(LCD_H, dy + sh);
+  for (int y = y0; y < y1; y++) {
+    const uint16_t* sp = src + (y - dy) * sw + (x0 - dx);
+    uint16_t* dp = dst + y * LCD_W + x0;
+    for (int x = x0; x < x1; x++, sp++, dp++) {
+      uint16_t v = *sp;
+      if (v == key) continue;
+      uint16_t c = (uint16_t)((v >> 8) | (v << 8));
+      *dp = lut[(c >> 5) & 0x3F];
+    }
+  }
 }
 
 static void drawMouth(Mouth m, float t, bool yawn) {
@@ -809,10 +901,15 @@ void faceText(const char* s, float x, float y, int fontSize, float designH, uint
 }
 
 // -------------------------------------------------------------- render ---
+// `perf`: time per part of the frame (us, summed): clear, cylinder, piston + mouth, brows + eyes, overlays
+uint32_t g_perfPart[5] = {0, 0, 0, 0, 0};
+
 void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, float blinkOpen, float glow,
                 float t) {
   g_fcx = f.fcx; g_fcy = f.fcy; g_fs = f.fscale; g_glow = glow;
+  uint32_t pt = micros(), pn;
   canvas.fillScreen(COL_BG);
+  pn = micros(); g_perfPart[0] += pn - pt; pt = pn;
 
   // piston pose: stroke from the crank, lean from tilt, size, whole-character offset
   s_dx = f.rdx; s_dy = f.rdy; s_hs = f.rscale;
@@ -824,22 +921,27 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
   if (lantern) {
     s_body = yellow(f.rbright);
     s_bodyGlow = mix565(C_BG, C_YELLOW, 0.45f * g_glow * f.rbright);
+    s_hue = COL_YELLOW; s_bright = f.rbright; s_glowK = 0.45f * g_glow;
   } else if (f.gray) {
     s_body = mix565(C_BG, COL_SLEEPY, fmaxf(0.6f, f.rbright));
     s_bodyGlow = COL_BG;
+    s_hue = COL_SLEEPY; s_bright = fmaxf(0.6f, f.rbright); s_glowK = 0;
   } else {
     s_body = mix565(C_BG, C_SILVER, f.rbright);
     s_bodyGlow = mix565(C_BG, C_SILVER, 0.22f * g_glow * f.rbright);
+    s_hue = COL_SILVER; s_bright = f.rbright; s_glowK = 0.22f * g_glow;
   }
   s_eye = mix565(C_BG, C_ICE, f.eyeBright);
   s_eyeGlow = mix565(C_BG, C_ICE, 0.32f * glow * f.eyeBright);
 
   if (f.ov & OV_HOUSING) drawCylinder();
+  pn = micros(); g_perfPart[1] += pn - pt; pt = pn;
   if (f.rbright > 0.01f) {
     drawPiston(f);
     if (f.drawFrac > 0.99f && f.eyeBright > 0.01f && !lantern) drawMouth(f.mouth, t, f.ov & OV_YAWN);
   }
 
+  pn = micros(); g_perfPart[2] += pn - pt; pt = pn;
   if (f.eyeBright > 0.01f && f.drawFrac > 0.99f) {
     Brow brow = f.brow;
     if (f.ov & OV_BROWS_DET) brow = Brow::Determined;
@@ -853,5 +955,7 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
     drawEye(f.eye, lx, ly, r, blinkOpen, true, s_eye, s_eyeGlow, sc);
     drawEye(f.eye, rx, ry, r, blinkOpen, false, s_eye, s_eyeGlow, sc);
   }
+  pn = micros(); g_perfPart[3] += pn - pt; pt = pn;
   drawOverlays(f, tx, t);
+  g_perfPart[4] += micros() - pt;
 }

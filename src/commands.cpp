@@ -177,6 +177,18 @@ void handleCommand(const char* raw, uint16_t src) {
     snprintf(b, sizeof(b), "perf: %u frames, draw %.1f ms, push %.1f ms per frame", (unsigned)g_perfFrames,
              g_perfFrames ? g_perfDrawUs / 1000.0f / g_perfFrames : 0.0f, g_perfFrames ? g_perfPushUs / 1000.0f / g_perfFrames : 0.0f);
     reply(src, b);
+    extern uint32_t g_perfPart[5];
+    if (g_perfFrames) {
+      float k = 1.0f / 1000.0f / g_perfFrames;
+      snprintf(b, sizeof(b), "perf: draw parts - clear %.1f, cylinder %.1f, piston+mouth %.1f, brows+eyes %.1f, overlays %.1f ms",
+               g_perfPart[0] * k, g_perfPart[1] * k, g_perfPart[2] * k, g_perfPart[3] * k, g_perfPart[4] * k);
+      reply(src, b);
+    }
+    extern uint32_t g_pcRedraws;
+    extern uint32_t g_pcWhy[6]; snprintf(b, sizeof(b), "perf: piston cache redrawn %u times (lean %u, size %u, scale %u, hue %u, glow strength %u, glow %u)", (unsigned)g_pcRedraws, (unsigned)g_pcWhy[0], (unsigned)g_pcWhy[1], (unsigned)g_pcWhy[2], (unsigned)g_pcWhy[3], (unsigned)g_pcWhy[4], (unsigned)g_pcWhy[5]); memset(g_pcWhy, 0, sizeof(g_pcWhy));
+    reply(src, b);
+    g_pcRedraws = 0;
+    memset(g_perfPart, 0, sizeof(g_perfPart));
     g_perfFrames = g_perfDrawUs = g_perfPushUs = 0;
     g_perfLoops = g_perfLoopMaxUs = g_tpReads = g_tpReadUs = g_tpReadMaxUs = g_tpGapMaxMs = 0;
     s_since = now;
