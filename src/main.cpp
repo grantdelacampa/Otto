@@ -383,6 +383,8 @@ void setup() {
           : (st & (1ULL << PIN_BTN_PWR)) ? "wake-pwr" : "wake-ext1";
     } else if (cause == ESP_SLEEP_WAKEUP_TIMER) why = "wake-peek";
     powerLog(why);
+    // how many sleep peeks it took (4 s for 15 min, then 15 s): proves the interval on the bench
+    if (!coldBoot && s_peeks) { char b[16]; snprintf(b, sizeof(b), "peeks%u", (unsigned)s_peeks); powerLog(b); }
   }
   if (!audioInit()) Serial.println("audio init failed");
   micInit();
