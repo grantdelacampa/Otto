@@ -944,6 +944,44 @@ static PartBox partBox() {
   return b;
 }
 
+// Status icons, a 2x2 block on the lower left, outside the cylinder: the bottom has the caption /
+// g readings, the low right the battery, thermometer and 4.2 badge (owner, Nov 19 2026).
+//   mic (listening)  BT (connected)
+//   Wi-Fi (tuning)   OBD (readings arriving)
+static uint8_t s_status = 0;
+static void iconMic(int x, int y, uint16_t c) {
+  canvas.fillRoundRect(x - 4, y - 10, 9, 12, 4, c);        // capsule
+  canvas.fillArc(x, y - 3, 7, 8, 0, 180, c);               // the U holder
+  canvas.fillRect(x, y + 5, 2, 3, c);                      // stem
+  canvas.fillRect(x - 4, y + 8, 10, 2, c);                 // base
+}
+static void iconBt(int x, int y, uint16_t c) {             // the Bluetooth rune, 2 px strokes
+  for (int o = 0; o < 2; o++) {
+    canvas.drawLine(x + o, y - 9, x + o, y + 9, c);
+    canvas.drawLine(x + o, y - 9, x + 5 + o, y - 4, c);
+    canvas.drawLine(x + 5 + o, y - 4, x - 5 + o, y + 5, c);
+    canvas.drawLine(x + o, y + 9, x + 5 + o, y + 4, c);
+    canvas.drawLine(x + 5 + o, y + 4, x - 5 + o, y - 5, c);
+  }
+}
+static void iconWifi(int x, int y, uint16_t c) {           // dot + two arcs opening upward
+  canvas.fillCircle(x, y + 7, 2, c);
+  canvas.fillArc(x, y + 7, 6, 8, 225, 315, c);
+  canvas.fillArc(x, y + 7, 11, 13, 225, 315, c);
+}
+static void iconObd(int x, int y, uint16_t c) {            // the OBD-II plug: body + two rows of pins
+  canvas.fillRoundRect(x - 9, y - 6, 19, 12, 3, c);
+  for (int i = 0; i < 4; i++) canvas.fillRect(x - 6 + 4 * i, y - 3, 2, 2, COL_BG);
+  for (int i = 0; i < 3; i++) canvas.fillRect(x - 4 + 4 * i, y + 1, 2, 2, COL_BG);
+}
+static void drawStatusIcons() {
+  uint16_t ice = mix565(C_BG, C_ICE, 0.6f), yel = mix565(C_BG, C_YELLOW, 0.7f);
+  if (s_status & FACE_ST_MIC)  iconMic(62, 268, ice);
+  if (s_status & FACE_ST_BT)   iconBt(90, 268, ice);
+  if (s_status & FACE_ST_WIFI) iconWifi(62, 298, ice);
+  if (s_status & FACE_ST_OBD)  iconObd(90, 298, yel);
+}
+
 void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, float blinkOpen, float glow,
                 float t) {
   g_fcx = f.fcx; g_fcy = f.fcy; g_fs = f.fscale; g_glow = glow;
@@ -1013,8 +1051,17 @@ void faceRender(const FaceState& f, const FaceText& tx, float crankAngleDeg, flo
   }
   pn = micros(); g_perfPart[3] += pn - pt; pt = pn;
   drawOverlays(f, tx, t);
+  if (s_status && (f.ov & OV_HOUSING)) drawStatusIcons();
   canvas.clearClipRect();
   g_perfPart[4] += micros() - pt;
+}
+
+// Plain frames don't redraw the screen outside the piston box, so the icons cost nothing until one
+// changes (this forces one full frame); inside the box the clip keeps them cheap.
+void faceSetStatus(uint8_t bits) {
+  if (bits == s_status) return;
+  s_status = bits;
+  s_prevPlain = false;
 }
 
 bool faceDirtyRect(int& x, int& y, int& w, int& h) {

@@ -22,6 +22,85 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   untested 1.46 port — the SPD2010 touch protocol came from there.
   - Verified on the board (Nov 14, 2026): display, touch (taps, hold/pet, crank drag), IMU, RTC,
     mic, voice models, battery ADC (~4.14 V on USB), all six designed faces.
+  - Battery: **500 mAh** LiPo (owner). `batlog` drain figures default to it; percent is voltage-only.
+    Bench run-down (Nov 19 2026): ~2 h awake (~400 mV/h, ~220 mA), sleep drain too small to see.
+  - No charge-status pin. On the charger the ADC reads ~4.13 V at once whatever the cell holds
+    (a 4 % cell jumped 3.49 -> 4.13 V) and never passes 4.15, so `power.cpp` detects plug / unplug by
+    that step (also across deep sleep, RTC_DATA_ATTR) and holds the pre-plug percent while charging.
+    `Charged` ("FULL!", needs > 4.17 V) can't fire on this board. A plug-in at boot with a near-full
+    cell shows no step, so a USB host (`Serial.isPlugged()`, SOF frames) also counts as charging.
+  - **Power budget** (`pwrtest`, Nov 19 2026; ADC sag vs interleaved baselines, the cell's resistance
+    is low so everything removable is only ~11 mV): backlight ~half of the savable draw (90 % -> 10 %
+    is the biggest win; 75 % is barely cheaper than 90), frame rate ~1/4, voice ~1/6, speaker I2S
+    clock a little; **CPU 240 -> 160/80 MHz and BLE advertising: too small to see** (CPU left at 240).
+    Changes made: calm faces (Idle / Bored / Sleep, slow spin, no touch / menu) at 12 fps
+    (`IDLE_FRAME_MS`), speaker I2S channel disabled between sounds (PCM5101 standby; no pops heard),
+    BLE advertises fast 30 s after init / disconnect / menu open and slowly otherwise (owner kept it on:
+    too small to measure), `wirelessOn` (menu WIRELESS) = no
+    BLE stack (unless obdOn) and no Wi-Fi tuning. The drive that prompted it (Nov 19): ~1 h 53 min
+    awake + 4 h 44 min asleep on one charge, ~270 mA awake; sleep drain negligible.
+  - Glow (perf, Nov 19 2026): the strength costs nothing (only colour); glow 0 saves ~2.4 of ~35 ms
+    draw. Owner's brightness: 10 % day + night (also the defaults now).
+  - **Driving fixes** (owner's drive, Nov 19 2026), all IMU-only (no speed): `stoppedSecs` counts up
+    while cruising straight too, so (1) road shake made Rev faces, (2) a smooth idle at a light read as
+    engine off -> drive summary at every stop, (3) the music bob dropped out (false revs + road rumble
+    in the beat's bass band). Now: `quietSecs` (gyro ~1 s LP < 1 dps and vertical 0.5-3 Hz road RMS
+    < 12 mg) = really stopped; revs need 3 s quiet first; engine off needs vib < 0.3 x engineVib with a
+    quiet body for 8 s; the summary waits 20 s and needs him still parked; the music bob has
+    hysteresis (looser limits once bobbing, 8 s to stop). Thresholds are guesses: **`drivelog`**
+    (/drive.csv, a line every 2 s while not still: vib, road, gyro, stopped, quiet, engine, face,
+    music level / background / beat / bob, + event markers) is there to tune them from a real drive.
+    Rotor has the same stoppedSecs logic and probably the same bugs.
+    `gyroLP` is rotation *wobble* (|gyro - its 5 s average|): the raw gyro carried a 7.6 dps offset on
+    the bench (the offset only re-learns while |lat| < 0.05 g, i.e. mounted level), which made
+    "quiet" impossible. Desk: wobble 0.27 dps, vib 0.0001-0.0002 g.
+  - **ENGINE LEARN** (menu / `enginelearn`, motion.cpp state machine): idle in P 20 s (vib, road,
+    wobble), wait for the engine to stop (vib < half idle, 1.5 s; tap = skip -> floor 0.0006 g), off
+    10 s. Saves idleVib, engineVib = sqrt(off x idle), engOffVib = sqrt(off x on), quietGyro / Road =
+    2.5 x idle (clamped). Refuses (saves nothing, "?" card) if idle < 2.5 x off. The sleep peek's
+    vibration wake uses max(0.7 x engineVib, 2.5 x engOffVib, 0.003 g) so a low learned level can't
+    wake him on nothing. Card = Expr::EngineLearn (OV_ANSWER + OV_RING), taps go to the routine.
+  - **Learn the road** (voice "learn the road" / "learn driving", hand-encoded phonemes `LkN jc RbD`,
+    `LkN DRiVgl`; also "learn the engine"; serial `enginelearn road`): 20 s at ~10 Hz while cruising,
+    the 20th percentile of wobble / road -> cruiseGyro / cruiseRoad. `recomputeQuiet()`: quiet =
+    sqrt(idle x cruise) when cruise > 1.5 x idle, else 2.5 x idle; does nothing until ENGINE LEARN
+    has measured idleGyro / idleRoad (a road learn against a default idle saved junk on the bench).
+    Refuses when no shakier than idle. Held in the hand: wobble 1.1 dps; still bench 0.06.
+    The wobble's 5 s average is seeded from the first sample (from zero it read ~1 dps for ~15 s).
+  - **Status icons** (`faceSetStatus`, FACE_ST_* bits; lower left 2x2 at px (62|90, 268|298)): mic =
+    voiceRunning, BT = bleAnyConnected (not advertising: that's nearly always), Wi-Fi = tuning on,
+    OBD (yellow plug) = obdRpmFresh. Drawn on OV_HOUSING faces; a change forces one full frame.
+  - **Schematic** (docs/ESP32-S3-Touch-LCD-1.46.pdf, owner, Nov 20 2026): TCA9554 INT (pin 13) goes to
+    R42, a 3-pad either-or footprint: pad 2 = 3V3 (pull-up), pad 3 = GPIO0 (BOOT, a deep-sleep wake
+    pin). Fitted as the 10K pull-up: `womint` (bench) saw the IMU's WoM toggle INT1 on the expander
+    (EXIO5) with every knock but GPIO0 never went low. Moving / bridging R42 to the GPIO0 side would
+    let a knock wake him directly (no 4/15 s peeks). Caveats for that mod: BOOT and the alarm then
+    share GPIO0 (read the expander to tell them apart; the INT stays low until the expander's input
+    register is read, so clear it before sleeping); BOOT-held wakes already boot normally, so a low
+    GPIO0 at a deep-sleep wake is fine.
+    The **NS8002 speaker amp** runs from VCC (battery) with its SD pin tied to ground: always on, even
+    in deep sleep (a few mA, part of the sleep floor; no firmware control). Mic EN tied to 3V3 too.
+  - **Display chip asleep in deep sleep** (Nov 20 2026): displayOff() now sends SLPIN (0x10, QSPI
+    write opcode 0x02 like the driver's tx_param; the driver has no disp_sleep) after DISPOFF, and
+    enterDeepSleep() holds TP_RST + LCD_RST (EXIO1/2) low. boardEarlyInit() keeps them low after a
+    deep-sleep wake (`esp_reset_reason() == ESP_RST_DEEPSLEEP`), so peeks don't start the SPD2010;
+    displayInit() / touchInit() pulse their resets on a full boot. Bench: BOOT wake -> display +
+    touch fine. Saving not measured yet (overnight bench run).
+  - **Sleep peeks** (Nov 20 2026): overnight on the bench 3.99 -> 3.78 V in 9.4 h (~15 mA asleep).
+    Each 4 s peek is a full chip start-up incl. the PSRAM self-test. Now 4 s for the first 15 min
+    parked (`s_peeks < 225`), then 15 s (`peekSecs()`).
+  - Settings v5 appended idleGyro / idleRoad / cruiseGyro / cruiseRoad (v4 ended on a float).
+  - Settings v4 appended driveLogOn + the learned values. v3 ended on a bool, so its blob has tail
+    padding: settingsLoad copies only `V3_USED` bytes (offsetof(wirelessOn) + 1).
+  - **Voice naps** (owner, Nov 19 2026): "Hi ESP" listens 5 min (`VOICE_WINDOW_MS`) after a wake,
+    engine start, touch, menu or any use, then ESP-SR is stopped until the next one. The music bob
+    was fed only by ESP-SR's mic reads, so a `micbob` task (voice.cpp, core 1 prio 1) reads the mic
+    while ESP-SR is off (also with VOICE off: the bob works without voice now). micRead isn't
+    reentrant: start() raises `s_srStarting` and waits for the task's block. A small ice-blue mic
+    on the lower left shows while it listens (see Status icons).
+  - Settings blob: SETTINGS_VERSION 3 only **appended** `wirelessOn`; settingsLoad carries a v2 blob
+    over (`V2_SIZE = offsetof(Settings, wirelessOn)`) so the mount calibration survives. Append new
+    fields at the end the same way instead of resetting everyone's settings.
   - SPD2010 wants window edges on multiples of 4: `display.cpp` pushes full-width 32-row stripes.
   - **Touch runs in its own task** (`readerTask` in touch.cpp, core 1, prio 2, every 10 ms) feeding
     time-stamped samples to the gesture code. The SPD2010 shows a lift only as an idle status read

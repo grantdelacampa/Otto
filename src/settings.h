@@ -24,7 +24,7 @@ struct Settings {
   float revRatio = 2.0f;     // a rev = vibration this many times the idle level
   float hotOffC = 65.0f;     // above this for 10 s: show TOO HOT and sleep
   // Display
-  int  dayBri = 90, nightBri = 35, glow = 70;   // percent
+  int  dayBri = 10, nightBri = 10, glow = 70;   // percent (owner, Nov 19 2026: 10 % day + night for battery)
   // Sound
   int  volume = 60;      // percent
   // Mounting / calibration
@@ -52,6 +52,19 @@ struct Settings {
   int   shiftRpm = 5800;     // shift light at this rpm (0 = off)
   int   coldCoolC = 50;      // coolant below this after a start -> warm-up face
   int   hotCoolC = 115;      // coolant at/above this -> engine hot face
+  // --- added in SETTINGS_VERSION 3: keep new fields at the end (settingsLoad carries v2 over) ---
+  bool  wirelessOn = true;   // Bluetooth + Wi-Fi tuning; off = no radio at all
+  // --- added in SETTINGS_VERSION 4 ---
+  bool  driveLogOn = true;   // drivelog: a diagnostics line every 2 s while moving (menu DRIVE LOG)
+  // ENGINE LEARN (menu): measured at idle in P, then with the engine off. 0 = not learned yet:
+  // engine on = engineVib, off below 0.3 x engineVib, quiet = the defaults below.
+  float engOffVib = 0;       // g RMS: below this (with a still body) the engine counts as off
+  float idleVib = 0;         // g RMS: this car's idle, the base a rev has to rise above
+  float quietGyro = 0.6f;    // deg/s: rotation wobble below this = really stopped (not cruising)
+  float quietRoad = 0.012f;  // g RMS: vertical body motion below this = really stopped
+  // --- added in SETTINGS_VERSION 5: what quietGyro / quietRoad are worked out from (0 = not learned)
+  float idleGyro = 0, idleRoad = 0;      // ENGINE LEARN: wobble (dps) / road (g) at idle in P
+  float cruiseGyro = 0, cruiseRoad = 0;  // "learn the road" (voice): the quiet end of steady cruising
 };
 
 extern Settings g_set;

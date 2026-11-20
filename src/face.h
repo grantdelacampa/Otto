@@ -127,3 +127,6 @@ void faceForceFull();                                   // next frame redraws ev
 enum class Align : uint8_t { Center, Left, Right };
 void faceText(const char* s, float x, float y, int fontSize, float designH, uint16_t color,
               Align a = Align::Center);   // fontSize: 2 = small, 4 = medium, 7 = 7-segment digits
+// Status icons (lower left): FACE_ST_* bits
+enum : uint8_t { FACE_ST_MIC = 1, FACE_ST_BT = 2, FACE_ST_WIFI = 4, FACE_ST_OBD = 8 };
+void faceSetStatus(uint8_t bits);

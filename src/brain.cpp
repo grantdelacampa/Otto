@@ -16,7 +16,7 @@ static const char* kNames[] = {
   "holidaybirthday", "holidaynewyear", "holidayjuly4", "holidayhalloween", "holidaychristmas",
   "guard", "missedyou", "milestone", "breaktime", "hotcabin", "coldcabin", "showcard", "holidaypatent",
   "warmup", "warm", "enginehot", "checkengine",
-  "wifitune",
+  "wifitune", "enginelearn",
 };
 static_assert(sizeof(kNames) / sizeof(kNames[0]) == (size_t)Expr::COUNT, "names out of sync");
 
@@ -50,6 +50,7 @@ static int defaultPrio(Expr e) {
     case Expr::SehrGut: case Expr::Warm: return 42;
     case Expr::WarmUp: return 43;
     case Expr::CheckEngine: case Expr::WifiTune: return 47;
+    case Expr::EngineLearn: return 88;
     case Expr::EngineHot: return 62;
     case Expr::Guard: case Expr::Milestone: case Expr::BreakTime: case Expr::HotCabin: case Expr::ColdCabin: return 44;
     case Expr::MissedYou: return 41;
@@ -302,8 +303,9 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
     case Expr::Saved:     f.eye = Eye::Happy; f.brow = Brow::Raised; f.mouth = Mouth::Pleased; f.ov |= OV_CHECK; brainSetCaption("SAVED"); break;
     case Expr::Charging:
       f.eye = Eye::Content; f.eyeDY = -4; f.mouth = Mouth::Pleased; f.spin = 60; f.ov |= OV_BATTERY | OV_CAPTION;
-      f.captionColor = COL_YELLOW; f.batColor = COL_YELLOW; f.bat = ctx.batPct / 100.0f;
-      snprintf(b, sizeof(b), "%d%%", ctx.batPct); brainSetCaption(b);
+      // bar = level from before the charger went in; on the charger the voltage can't tell more
+      f.captionColor = COL_YELLOW; f.batColor = COL_YELLOW; f.bat = fmaxf(0.06f, ctx.batPct / 100.0f);
+      brainSetCaption("CHARGING");
       break;
     case Expr::LowBattery:
       f.rbright = 0.55f; f.eye = Eye::Half; f.eyeDY = 4; f.brow = Brow::Sad; f.mouth = Mouth::Frown; f.spin = 20;
@@ -513,6 +515,10 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
     case Expr::WifiTune:                      // card: WI-FI OTTO-xxxx / password / address (set by wifitune.cpp)
       f.ov = OV_ANSWER | OV_HOUSING; f.fcx = 120; f.fcy = 66; f.fscale = 0.42f;
       f.eye = Eye::Dot; f.brow = Brow::Raised; f.mouth = Mouth::Pleased; f.eyeR = 10;
+      break;
+    case Expr::EngineLearn:                   // card: ENGINE LEARN / step / what to do, ring = progress
+      f.ov = OV_ANSWER | OV_HOUSING | OV_RING; f.fcx = 120; f.fcy = 66; f.fscale = 0.42f;
+      f.eye = Eye::Dot; f.brow = Brow::Raised; f.mouth = Mouth::Small; f.eyeR = 10; f.ring = s_ring;
       break;
 
     default: break;

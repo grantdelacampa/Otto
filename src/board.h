@@ -12,6 +12,7 @@ void boardExpanderWrite(uint8_t bit, bool high);
 float boardBatteryVolts();                // filtered by caller
 void  boardPowerOff();                    // releases the power latch (only turns off on battery)
 void  boardHoldPinsForSleep();
+void  boardHoldResetsForSleep();   // display + touch chip (one SPD2010) held in reset while asleep
 void  boardReleasePinHolds();
 
 // Buttons (active LOW)

@@ -18,8 +18,14 @@ static QueueHandle_t s_q;
 struct CmdMsg { uint16_t conn; char text[240]; };
 
 static const int MAXC = 4;
-static uint32_t s_lastDisconnect = 0;
-static int s_advStage = -1;
+// Advertise fast for 30 s after a wake / disconnect / menu open (quick to find), slowly otherwise.
+// Advertising itself was too small to measure (pwrtest, Nov 19 2026). g_set.wirelessOn = false:
+// never advertise (and no stack at all unless OBD needs it).
+static const uint32_t ADV_WINDOW_MS = 30000;
+static volatile uint32_t s_advUntil = 0;
+static volatile int s_advMode = -2;   // what's running: 0 off, 1 slow, 2 fast (-2 = unknown, recheck)
+static int s_testAdv = -1;            // pwrtest: -1 normal, else force 0 off / 1 slow / 2 fast
+static bool s_inited = false;
 
 // log streaming state
 static bool s_streaming = false;
@@ -37,13 +43,12 @@ static void enqueue(uint16_t conn, const std::string& v) {
 class ServerCB : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, ble_gap_conn_desc* d) override {
     s->updateConnParams(d->conn_handle, 24, 48, 0, 400);
-    if (s->getConnectedCount() < MAXC - 1) NimBLEDevice::startAdvertising();
+    s_advMode = -2;                    // NimBLE stopped advertising: let updateAdvertising() decide
   }
   void onDisconnect(NimBLEServer* s, ble_gap_conn_desc* d) override {
-    (void)d;
-    s_lastDisconnect = millis();
-    s_advStage = -1;
-    NimBLEDevice::startAdvertising();
+    (void)s; (void)d;
+    s_advUntil = millis() + ADV_WINDOW_MS;   // a moment to reconnect (page reload, out of range)
+    s_advMode = -2;
   }
 };
 
@@ -91,6 +96,10 @@ class CfgCB : public NimBLECharacteristicCallbacks {
 };
 
 void bleInit() {
+  if (s_inited) return;
+  // Nothing needs the radio: don't start the stack (bleUpdate starts it if a setting turns on)
+  if (!g_set.wirelessOn && !g_set.obdOn) { Serial.println("ble: off (wireless off)"); return; }
+  s_inited = true;
   s_q = xQueueCreate(8, sizeof(CmdMsg));
   NimBLEDevice::init(BLE_NAME);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
@@ -112,8 +121,20 @@ void bleInit() {
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(UUID_SERVICE);
   adv->setScanResponse(true);
-  adv->start();
-  s_lastDisconnect = millis();
+  s_advUntil = millis() + ADV_WINDOW_MS;
+  s_advMode = -2;
+}
+
+bool bleReady() { return s_inited; }
+void bleOpenWindow() { s_advUntil = millis() + ADV_WINDOW_MS; }
+void bleTestAdvertising(int mode) { s_testAdv = mode; s_advMode = -2; }
+bool bleAdvertising() { return s_inited && NimBLEDevice::getAdvertising()->isAdvertising(); }
+
+void bleShutdown() {                  // pwrtest only: the whole stack off (a restart brings it back)
+  if (!s_inited) return;
+  NimBLEDevice::deinit(true);
+  s_inited = false;
+  s_server = nullptr; s_tel = s_log = s_cmd = s_cfg = nullptr;
 }
 
 bool bleAnyConnected() { return s_server && s_server->getConnectedCount() > 0; }
@@ -161,22 +182,44 @@ static void streamLog() {
   }
 }
 
-// Advertise fast for a minute after boot / a disconnect, then slow down to save battery.
 static void updateAdvertising(uint32_t now) {
-  uint32_t since = now - s_lastDisconnect;
-  int stage = since < 60000 ? 0 : (since < 600000 ? 1 : 2);
-  if (stage == s_advStage) return;
-  s_advStage = stage;
+  int want;
+  if (s_testAdv >= 0) want = s_testAdv;
+  else {
+    bool window = (int32_t)(s_advUntil - now) > 0;
+    // a second central (tuning page + OTA tab) can still join inside the window
+    // slow advertising (every 1-2 s) outside the window: pwrtest couldn't see it, and the page
+    // can still find him any time (owner, Nov 19 2026)
+    want = !g_set.wirelessOn || s_server->getConnectedCount() >= MAXC - 1 ? 0 : window ? 2 : 1;
+  }
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  static const uint16_t mins[] = {32, 800, 1600}, maxs[] = {64, 960, 3200};  // x 0.625 ms
-  bool was = adv->isAdvertising();
-  if (was) adv->stop();
-  adv->setMinInterval(mins[stage]);
-  adv->setMaxInterval(maxs[stage]);
-  adv->start();
+  bool on = adv->isAdvertising();
+  if (want == s_advMode && (want > 0) == on) return;
+  if (on) adv->stop();
+  if (want > 0) {
+    static const uint16_t mins[] = {0, 1600, 32}, maxs[] = {0, 3200, 64};  // x 0.625 ms
+    adv->setMinInterval(mins[want]);
+    adv->setMaxInterval(maxs[want]);
+    adv->start();
+  }
+  s_advMode = want;
+}
+
+static void dropPeers() {             // wireless switched off: let go of the tuning page too
+  if (!s_server) return;
+  for (uint16_t h : s_server->getPeerDevices()) s_server->disconnect(h);
 }
 
 void bleUpdate(uint32_t now) {
+  if (!s_inited) {
+    if (s_testAdv < 0 && (g_set.wirelessOn || g_set.obdOn)) bleInit();   // turned on in the menu
+    if (!s_inited) return;
+  }
+  static bool s_wasOn = g_set.wirelessOn;
+  if (s_wasOn != g_set.wirelessOn) {
+    s_wasOn = g_set.wirelessOn;
+    if (!s_wasOn) dropPeers(); else bleOpenWindow();
+  }
   CmdMsg m;
   while (xQueueReceive(s_q, &m, 0) == pdTRUE) handleCommand(m.text, m.conn);
   if (s_streaming) streamLog();

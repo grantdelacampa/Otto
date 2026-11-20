@@ -1,4 +1,5 @@
 #include "board.h"
+#include <esp_system.h>
 #include "config.h"
 #include <Wire.h>
 #include <Preferences.h>
@@ -42,8 +43,10 @@ void boardEarlyInit() {
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000);
 
-  // TCA9554: bits 0..2 outputs (touch reset, LCD reset, SD D3), all high
-  s_exio = 0xFF;
+  // TCA9554: bits 0..2 outputs (touch reset, LCD reset, SD D3). After a deep sleep the display /
+  // touch chip stays held in reset (low): a sleep peek mustn't wake it, and displayInit() /
+  // touchInit() pulse their own resets anyway on a full boot.
+  s_exio = esp_reset_reason() == ESP_RST_DEEPSLEEP ? 0xFC : 0xFF;
   boardI2CWrite(ADDR_TCA9554, 0x01, s_exio);
   boardI2CWrite(ADDR_TCA9554, 0x03, 0xF8);
 
@@ -60,6 +63,11 @@ float boardBatteryVolts() {
 void boardPowerOff() {
   gpio_hold_dis((gpio_num_t)PIN_PWR_HOLD);
   digitalWrite(PIN_PWR_HOLD, LOW);  // on USB power the board simply stays on
+}
+
+void boardHoldResetsForSleep() {     // display + touch (one SPD2010) held in reset while asleep
+  boardExpanderWrite(EXIO_TOUCH_RST, false);
+  boardExpanderWrite(EXIO_LCD_RST, false);
 }
 
 void boardHoldPinsForSleep() {

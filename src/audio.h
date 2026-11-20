@@ -8,3 +8,4 @@ bool audioInit();
 void audioPlayClip(const char* name);               // falls back to a chirp if the file is missing
 void audioChirp(float f0, float f1, uint16_t ms);
 bool audioBusy();
+void audioHoldClock(bool on);   // pwrtest: keep the speaker clock running between sounds (the old way)

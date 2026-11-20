@@ -17,6 +17,7 @@ enum class Expr : uint8_t {
   Guard, MissedYou, Milestone, BreakTime, HotCabin, ColdCabin, ShowCard, HolidayPatent,
   WarmUp, Warm, EngineHot, CheckEngine,   // OBD-II (obd.cpp)
   WifiTune,                               // Wi-Fi tuning mode: how to join (wifitune.cpp)
+  EngineLearn,                            // ENGINE LEARN card + progress ring (motion.cpp)
   COUNT
 };
 

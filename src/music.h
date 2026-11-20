@@ -15,3 +15,4 @@ float musicBpm();                             // estimated tempo (valid while mu
 void musicStatus(char* b, size_t n);          // `music` command
 void musicWatch(float secs);                  // `music watch [secs]`: print the numbers to serial
 void musicSetThresholds(const char* what, float v);   // `music loud <dB above background>|beat|steady <v>` (bench, not saved)
+void musicDebug(float& lvl, float& floor, float& beat);   // drivelog: level / background dBFS, beat strength

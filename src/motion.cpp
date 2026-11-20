@@ -1,4 +1,5 @@
 #include "motion.h"
+#include "drivelog.h"
 #include "obd.h"
 #include "board.h"
 #include "brain.h"
@@ -147,6 +148,55 @@ static bool womArm(uint8_t mg, uint8_t ctrl2) {
   imuWrite(REG_CTRL7, 0x01);
   return ok;
 }
+// Bench (`womint`): does the expander's INT reach GPIO0? The schematic has R42, a 3-pad either-or
+// footprint: TCA9554 INT -> 3.3 V (pull-up) or -> GPIO0 (the BOOT pin, a deep-sleep wake pin).
+// Arm wake-on-motion (it toggles INT1 -> expander input 5 -> expander INT, held low until the
+// expander's input register is read), then watch GPIO0. Don't press BOOT during the test.
+void motionWomIntTest(int secs, void (*out)(const char*)) {
+  char b[120];
+  bool ok = womArm(30, 0x1D);
+  delay(60);
+  motionWomFired();
+  uint8_t in = 0, last = 0;
+  boardI2CRead(0x20, 0x00, &last, 1);              // reading the input register clears the expander INT
+  snprintf(b, sizeof(b), "womint: armed %s, expander in 0x%02X, GPIO0 %d - knock / tap the board now (%d s)",
+           ok ? "ok" : "NO ACK", last, digitalRead(0), secs);
+  out(b);
+  uint32_t t0 = millis(), lastRead = 0;
+  int lows = 0, toggles = 0, flags = 0;
+  bool wasLow = false;
+  while (millis() - t0 < (uint32_t)secs * 1000) {
+    bool low = digitalRead(0) == LOW;
+    if (low && !wasLow) {
+      lows++;
+      snprintf(b, sizeof(b), "womint: GPIO0 went LOW at %lu ms", (unsigned long)(millis() - t0));
+      out(b);
+    }
+    wasLow = low;
+    if (millis() - lastRead >= 300) {                // also watch INT1 itself on the expander
+      lastRead = millis();
+      if (boardI2CRead(0x20, 0x00, &in, 1) && ((in ^ last) & 0x18)) {
+        toggles++;
+        snprintf(b, sizeof(b), "womint: expander in 0x%02X (IMU INT1 bit4 %d, INT2 bit3 %d)", in, (in >> 4) & 1, (in >> 3) & 1);
+        out(b);
+      }
+      last = in;
+      if (motionWomFired()) {                          // the IMU's own flag (what the sleep peek reads)
+        flags++;
+        snprintf(b, sizeof(b), "womint: IMU knock flag at %lu ms", (unsigned long)(millis() - t0));
+        out(b);
+      }
+    }
+    delay(2);
+  }
+  snprintf(b, sizeof(b), "womint: done - knock flags %d, IMU INT pin toggles %d, GPIO0 lows %d -> %s", flags, toggles, lows,
+           !flags && !toggles ? "no knock seen (knock harder?)" :
+           !toggles ? "knocks seen but the INT pin never moved (pin config?)" :
+           lows ? "INT REACHES GPIO0: wake-on-knock possible" : "INT does NOT reach GPIO0 (R42 = pull-up)");
+  out(b);
+  motionInit();                                    // back to normal readings
+}
+
 bool motionArmWom(uint8_t mg) {
   if (!g_motion.ok) return false;
   bool ok = womArm(mg, 0x1D);
@@ -327,6 +377,33 @@ static float s_magMean = 1, s_magVar = 0;
 static float s_tempF = 25;
 static uint32_t s_lastBump = 0;
 static float s_vibSq = 0, s_idleVib = 0;
+static float s_gyroLP = 0, s_vert3 = 0, s_roadSq = 0;
+// "Really stopped": steady cruising has no accel / turn / brake either, so stoppedSecs counts up
+// on a straight road too (the IMU can't see speed). That made road shake look like revs and a
+// smooth idle look like the engine stopping (owner's drive, Nov 19 2026). On the road the body
+// still rolls / pitches and bounces; at a light it doesn't. Thresholds are first guesses:
+// `drivelog` records these numbers on a drive to tune them.
+// The limits live in g_set.quietGyro / quietRoad (defaults 0.6 dps wobble / 12 mg); recomputeQuiet()
+// sets them from what ENGINE LEARN (idle) and "learn the road" (cruising) measured on this car.
+
+// ---- ENGINE LEARN (menu): parked, engine idling in P -> 20 s; then engine off -> 10 s ----
+enum class Learn : uint8_t { Off, Idle, WaitOff, EngOff, Road };
+static Learn s_learn = Learn::Off;
+static const char* s_learnTitle = "ENGINE LEARN";   // card title: ENGINE LEARN / LEARN THE ROAD
+static uint32_t s_learnAt = 0, s_lowSince = 0;
+static double s_lVib = 0, s_lRoad = 0, s_lGyro = 0;
+static uint32_t s_lN = 0;
+static float s_lIdleVib = 0, s_lIdleRoad = 0, s_lIdleGyro = 0;
+static volatile bool s_lTap = false;
+static const uint32_t L_IDLE_MS = 20000, L_OFF_MS = 10000, L_SETTLE_MS = 2000, L_WAIT_MS = 90000;
+static const float L_FLOOR_DEFAULT = 0.0006f;   // a parked board's own reading, if the off step is skipped
+// "learn the road" (voice, while cruising): 20 s of samples at ~10 Hz; the quiet end (20th percentile)
+// is what counts - the threshold has to stay below the smoothest moments of real driving
+static const uint32_t L_ROAD_MS = 20000;
+static const int ROAD_N = 220;
+static float s_rG[ROAD_N], s_rR[ROAD_N];
+static int s_rN = 0;
+static uint32_t s_rLast = 0;
 static uint32_t s_engOnMs = 0, s_engOffMs = 0, s_lastRev = 0;
 static bool s_inRev = false;
 
@@ -342,6 +419,7 @@ static void recordTurn(uint32_t now) {
 }
 
 float g_dbgMagVar = 0, g_dbgGyro = 0;
+static void engineLearnStep(uint32_t now, float vib, bool selfNoise);
 
 void motionUpdate(uint32_t now) {
   if (!g_motion.ok) return;
@@ -370,6 +448,11 @@ void motionUpdate(uint32_t now) {
   float bumpG = fabsf(vertRaw - s_vertSlow);
 
   g_motion.lon = s_lon; g_motion.lat = s_lat; g_motion.yaw = s_yaw; g_motion.vert = vertRaw - s_vertSlow;
+  // road: vertical body motion between ~0.5 and ~3 Hz (engine shake is tens of Hz)
+  s_vert3 += (vertRaw - s_vert3) * k;
+  float band = s_vert3 - s_vertSlow;
+  s_roadSq += (band * band - s_roadSq) * (1 - expf(-dt / 1.0f));
+  g_motion.road = sqrtf(s_roadSq);
 
   // stillness: |a| variance + gyro magnitude
   float mag = sqrtf(dot3(a, a));
@@ -377,6 +460,17 @@ void motionUpdate(uint32_t now) {
   s_magMean += (mag - s_magMean) * km;
   s_magVar += ((mag - s_magMean) * (mag - s_magMean) - s_magVar) * km;
   float gyroMag = sqrtf(dot3(g, g));
+  // rotation wobble, not rotation: |gyro - its own ~5 s average|. A leftover offset (7.6 dps on the
+  // bench, Nov 19 2026: the offset only re-learns when the mount sits level) or a long steady curve
+  // drops out; the body rolling / pitching on the road doesn't.
+  static float s_gAvg[3] = {0, 0, 0};
+  static bool s_gSeeded = false;
+  if (!s_gSeeded) { for (int i = 0; i < 3; i++) s_gAvg[i] = g[i]; s_gSeeded = true; }   // else ~15 s of fake wobble after boot
+  float kg = 1 - expf(-dt / 5.0f), wob2 = 0;
+  for (int i = 0; i < 3; i++) { s_gAvg[i] += (g[i] - s_gAvg[i]) * kg; float d = g[i] - s_gAvg[i]; wob2 += d * d; }
+  s_gyroLP += (sqrtf(wob2) - s_gyroLP) * (1 - expf(-dt / 1.0f));
+  g_motion.gyroLP = s_gyroLP;
+  bool quiet = s_gyroLP < g_set.quietGyro && g_motion.road < g_set.quietRoad;
   bool still = s_magVar < 0.00015f && gyroMag < 1.5f;
   g_dbgMagVar = s_magVar; g_dbgGyro = gyroMag;           // for `awake`
   if (!still && g_motion.stillSecs > 20)
@@ -392,6 +486,7 @@ void motionUpdate(uint32_t now) {
   bool driving = fabsf(s_lon) > 0.08f || fabsf(s_lat) > 0.08f || fabsf(s_yaw) > 5;
   if (driving) { g_motion.hadDriven = true; g_motion.stoppedSecs = 0; }
   else g_motion.stoppedSecs += dt;
+  g_motion.quietSecs = quiet && !driving ? g_motion.quietSecs + dt : 0;
   if (g_motion.stoppedSecs > 900) g_motion.hadDriven = false;
 
   uint32_t ms = (uint32_t)(dt * 1000);
@@ -460,16 +555,25 @@ void motionUpdate(uint32_t now) {
   }
   else if (selfNoise) { /* hold */ }
   else if (vib > g_set.engineVib) { s_engOnMs += ms; s_engOffMs = 0; }
-  else if (vib < g_set.engineVib * 0.6f) { s_engOffMs += ms; s_engOnMs = 0; }
-  if (!g_motion.engineOn && s_engOnMs > 1500) { g_motion.engineOn = true; g_motion.engineStarted = true; Serial.println("motion: engine on"); }
-  if (g_motion.engineOn && s_engOffMs > 4000) { g_motion.engineOn = false; g_motion.engineStopped = true; Serial.println("motion: engine off"); }
+  // Off = vibration down near the sensor's own floor (a parked car reads ~0.001 g), not just under
+  // the "on" level: a smooth V8 idling in Drive at a light sat below the old 0.6 x engineVib and
+  // ended the drive at every stop. Also needs a quiet body for 8 s (not cruising).
+  else if (vib < (g_set.engOffVib > 0 ? g_set.engOffVib : g_set.engineVib * 0.3f) && g_motion.quietSecs > 1.0f) {
+    s_engOffMs += ms; s_engOnMs = 0;
+  }
+  if (!g_motion.engineOn && s_engOnMs > 1500) { g_motion.engineOn = true; g_motion.engineStarted = true; Serial.println("motion: engine on"); drivelogEvent("engine on"); }
+  if (g_motion.engineOn && s_engOffMs > 8000) { g_motion.engineOn = false; g_motion.engineStopped = true; Serial.println("motion: engine off"); drivelogEvent("engine off"); }
 
-  // ---- revs: parked with the engine running, vibration jumps well above idle ----
-  bool parked = g_motion.engineOn && g_motion.stoppedSecs > 2.0f;
+  // ---- revs: really stopped with the engine running, vibration jumps well above idle ----
+  // quietSecs: the body was still for 3 s before the jump (a rev's own torque roll comes after)
+  bool parked = g_motion.engineOn && g_motion.stoppedSecs > 2.0f && (s_inRev || g_motion.quietSecs > 3.0f);
   if (parked && obdRpmFresh()) { /* obd.cpp does revs from the real rpm */ }
   else if (parked) {
-    if (!s_inRev) s_idleVib += (vib - s_idleVib) * (1 - expf(-dt / 5.0f));   // learn idle level
-    float base = fmaxf(s_idleVib, g_set.engineVib);
+    if (!s_inRev) {
+      if (s_idleVib <= 0 && g_set.idleVib > 0) s_idleVib = g_set.idleVib;   // start from the learned idle
+      s_idleVib += (vib - s_idleVib) * (1 - expf(-dt / 5.0f));            // follow today's idle
+    }
+    float base = fmaxf(s_idleVib, g_set.idleVib > 0 ? g_set.idleVib : g_set.engineVib);
     if (!s_inRev && vib > base * g_set.revRatio && now - s_lastRev > 400) {
       s_inRev = true;
       s_lastRev = now;
@@ -477,6 +581,7 @@ void motionUpdate(uint32_t now) {
         float intensity = constrain(vib / base, 1.0f, 6.0f);
         brainSpinImpulse(350 * intensity);
         brainEvent(Expr::Rev, 1100);
+        drivelogEvent("rev");
       }
     }
     if (s_inRev && vib < base * 1.3f) s_inRev = false;
@@ -485,5 +590,161 @@ void motionUpdate(uint32_t now) {
     if (!g_motion.engineOn) s_idleVib = 0;
   }
 
+  engineLearnStep(now, vib, selfNoise);
   recorderSample(now, -s_lon, s_lon, fabsf(s_lat), fabsf(s_yaw), bumpG);
+}
+
+// ---------------------------------------------------------- ENGINE LEARN --
+bool motionEngineLearning() { return s_learn != Learn::Off; }
+void motionEngineLearnTap() { s_lTap = true; }
+
+void motionStartEngineLearn() {
+  if (!g_motion.ok || g_motion.calibrating) return;
+  s_learnTitle = "ENGINE LEARN";
+  s_learn = Learn::Idle; s_learnAt = millis(); s_lVib = s_lRoad = s_lGyro = 0; s_lN = 0; s_lTap = false;
+  Serial.println("engine learn: measuring idle (engine running, in P)");
+  audioChirp(700, 1000, 120);
+}
+
+// quietGyro / quietRoad from what's been learned. Both known: the geometric middle between idle and
+// cruising (if cruising is clearly the shakier one). Idle only: 2.5 x idle. Neither: defaults.
+static void recomputeQuiet() {
+  // cruising only counts against a measured idle (a default idle is a guess; bench, Nov 19 2026)
+  bool idleKnown = g_set.idleGyro > 0 && g_set.idleRoad > 0;
+  if (!idleKnown) return;
+  float iG = g_set.idleGyro, iR = g_set.idleRoad;
+  if (g_set.cruiseGyro > iG * 1.5f) g_set.quietGyro = sqrtf(iG * g_set.cruiseGyro);
+  else g_set.quietGyro = iG * 2.5f;
+  if (g_set.cruiseRoad > iR * 1.5f) g_set.quietRoad = sqrtf(iR * g_set.cruiseRoad);
+  else g_set.quietRoad = iR * 2.5f;
+  g_set.quietGyro = constrain(g_set.quietGyro, 0.3f, 2.5f);
+  g_set.quietRoad = constrain(g_set.quietRoad, 0.004f, 0.03f);
+}
+
+static void learnCard(const char* big, const char* sub, float ring) {
+  brainSetAnswer(s_learnTitle, big, sub);
+  brainSetRing(ring);
+  brainEventPrio(Expr::EngineLearn, 700, 88);
+}
+
+static void learnDone(float floorV, bool measured) {
+  s_learn = Learn::Off;
+  char sub[40];
+  // Can't tell idle from off when they're this close: keep what he had.
+  if (s_lIdleVib < floorV * 2.5f || s_lIdleVib < 0.0008f) {
+    Serial.printf("engine learn: idle %.4f g vs off %.4f g - too close to tell apart, nothing saved\n", s_lIdleVib, floorV);
+    snprintf(sub, sizeof(sub), "IDLE %.1f MG - OFF %.1f MG", s_lIdleVib * 1000, floorV * 1000);
+    brainSetAnswer("ENGINE LEARN", "?", sub);
+    brainEventPrio(Expr::EngineLearn, 5000, 88);
+    audioChirp(600, 400, 250);
+    return;
+  }
+  // geometric steps between the two levels: "on" halfway (in ratio) from off to idle, "off" lower still
+  g_set.idleVib = s_lIdleVib;
+  g_set.engineVib = sqrtf(floorV * s_lIdleVib);
+  g_set.engOffVib = sqrtf(floorV * g_set.engineVib);
+  // really stopped = this car's idle stillness with room to spare (or halfway to cruising, if known)
+  g_set.idleGyro = s_lIdleGyro; g_set.idleRoad = s_lIdleRoad;
+  recomputeQuiet();
+  settingsSave();
+  Serial.printf("engine learn: idle %.4f g, off %.4f g%s -> on > %.4f, off < %.4f; quiet gyro %.2f dps, road %.4f g\n",
+                s_lIdleVib, floorV, measured ? "" : " (skipped: default)", g_set.engineVib, g_set.engOffVib,
+                g_set.quietGyro, g_set.quietRoad);
+  char ev[64];
+  snprintf(ev, sizeof(ev), "learn idle %.4f off %.4f", s_lIdleVib, floorV);
+  drivelogEvent(ev);
+  snprintf(sub, sizeof(sub), "IDLE %.1f MG - OFF %.1f MG", s_lIdleVib * 1000, floorV * 1000);
+  brainSetAnswer("ENGINE LEARNED", "OK", sub);
+  brainEventPrio(Expr::EngineLearn, 5000, 88);
+  audioChirp(900, 1400, 150);
+}
+
+void motionStartRoadLearn() {
+  if (!g_motion.ok || g_motion.calibrating) return;
+  s_learnTitle = "LEARN THE ROAD";
+  s_learn = Learn::Road; s_learnAt = millis(); s_rN = 0; s_rLast = 0; s_lTap = false;
+  Serial.println("road learn: measuring 20 s of steady driving");
+  audioChirp(700, 1000, 120);
+}
+
+static float pct20(float* v, int n) {          // sorts v in place
+  for (int i = 1; i < n; i++) { float t = v[i]; int j = i - 1; while (j >= 0 && v[j] > t) { v[j + 1] = v[j]; j--; } v[j + 1] = t; }
+  return v[n / 5];
+}
+
+static void roadDone() {
+  s_learn = Learn::Off;
+  char sub[40];
+  if (s_rN < 50) { brainSetAnswer(s_learnTitle, "?", "TOO FEW READINGS - TRY AGAIN"); brainEventPrio(Expr::EngineLearn, 4000, 88); return; }
+  float cG = pct20(s_rG, s_rN), cR = pct20(s_rR, s_rN);
+  bool idleKnown = g_set.idleGyro > 0 && g_set.idleRoad > 0;
+  float iG = idleKnown ? g_set.idleGyro : 0.3f, iR = idleKnown ? g_set.idleRoad : 0.0048f;
+  Serial.printf("road learn: cruising wobble %.2f dps, road %.4f g (idle %.2f / %.4f%s)\n", cG, cR, iG, iR,
+                idleKnown ? "" : ", not learned: run ENGINE LEARN too");
+  // nothing shakier than idle: he was probably stopped (or the road is glass-smooth) - keep the old values
+  if (cG < iG * 1.5f && cR < iR * 1.5f) {
+    Serial.println("road learn: no shakier than idle - nothing saved");
+    brainSetAnswer(s_learnTitle, "?", "LOOKS STOPPED - TRY WHILE DRIVING");
+    brainEventPrio(Expr::EngineLearn, 5000, 88);
+    audioChirp(600, 400, 250);
+    return;
+  }
+  g_set.cruiseGyro = cG; g_set.cruiseRoad = cR;
+  recomputeQuiet();
+  settingsSave();
+  Serial.printf("road learn: quiet = wobble < %.2f dps, road < %.4f g\n", g_set.quietGyro, g_set.quietRoad);
+  char ev[64];
+  snprintf(ev, sizeof(ev), "road learn wobble %.2f road %.4f", cG, cR);
+  drivelogEvent(ev);
+  if (idleKnown) snprintf(sub, sizeof(sub), "ROAD %.1fx IDLE", fmaxf(cG / iG, cR / iR));
+  else snprintf(sub, sizeof(sub), "NOW RUN ENGINE LEARN (PARKED)");   // saved; used once idle is known
+  brainSetAnswer("ROAD LEARNED", "OK", sub);
+  brainEventPrio(Expr::EngineLearn, 4000, 88);
+  audioChirp(900, 1400, 150);
+}
+
+static void engineLearnStep(uint32_t now, float vib, bool selfNoise) {
+  if (s_learn == Learn::Off) return;
+  uint32_t el = now - s_learnAt;
+  bool tap = s_lTap; s_lTap = false;
+  bool sample = el > L_SETTLE_MS && !selfNoise;
+  switch (s_learn) {
+    case Learn::Idle:
+      if (tap) { s_learn = Learn::Off; Serial.println("engine learn: cancelled"); brainEvent(Expr::Idle, 100); return; }
+      if (sample) { s_lVib += vib; s_lRoad += g_motion.road; s_lGyro += g_motion.gyroLP; s_lN++; }
+      learnCard("IDLE", "ENGINE RUNNING, IN P - TAP: STOP", fminf(1.0f, el / (float)L_IDLE_MS));
+      if (el >= L_IDLE_MS && s_lN) {
+        s_lIdleVib = s_lVib / s_lN; s_lIdleRoad = s_lRoad / s_lN; s_lIdleGyro = s_lGyro / s_lN;
+        Serial.printf("engine learn: idle vib %.4f g, road %.4f g, gyro %.2f dps; now turn the engine off\n",
+                      s_lIdleVib, s_lIdleRoad, s_lIdleGyro);
+        s_learn = Learn::WaitOff; s_learnAt = now; s_lowSince = 0;
+        audioChirp(1000, 700, 150);
+      }
+      break;
+    case Learn::WaitOff:
+      learnCard("OFF", "TURN THE ENGINE OFF - TAP: SKIP", 0);
+      if (tap || el > L_WAIT_MS) { learnDone(L_FLOOR_DEFAULT, false); return; }
+      if (vib < s_lIdleVib * 0.5f) { if (!s_lowSince) s_lowSince = now; }
+      else s_lowSince = 0;
+      if (s_lowSince && now - s_lowSince > 1500) {
+        s_learn = Learn::EngOff; s_learnAt = now; s_lVib = 0; s_lN = 0;
+        Serial.println("engine learn: engine off, measuring the quiet");
+      }
+      break;
+    case Learn::EngOff:
+      if (tap) { learnDone(L_FLOOR_DEFAULT, false); return; }
+      if (sample) { s_lVib += vib; s_lN++; }
+      learnCard("QUIET", "MEASURING ENGINE OFF", fminf(1.0f, el / (float)L_OFF_MS));
+      if (el >= L_OFF_MS && s_lN) learnDone(fmaxf(0.0002f, (float)(s_lVib / s_lN)), true);
+      break;
+    case Learn::Road:
+      if (tap) { s_learn = Learn::Off; Serial.println("road learn: cancelled"); brainEvent(Expr::Idle, 100); return; }
+      if (el > L_SETTLE_MS && now - s_rLast >= 90 && s_rN < ROAD_N) {
+        s_rLast = now; s_rG[s_rN] = g_motion.gyroLP; s_rR[s_rN] = g_motion.road; s_rN++;
+      }
+      learnCard("DRIVE", "KEEP DRIVING STEADY", fminf(1.0f, el / (float)(L_ROAD_MS + L_SETTLE_MS)));
+      if (el >= L_ROAD_MS + L_SETTLE_MS) roadDone();
+      break;
+    default: break;
+  }
 }

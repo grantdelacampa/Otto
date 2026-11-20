@@ -142,7 +142,16 @@ void displayUpdateBacklight(float dt) {
   ledcWrite(PIN_LCD_BL, (uint32_t)(s_bl + 0.5f));
 }
 
+// Before deep sleep / power off. "Display off" alone left the SPD2010 running (its touch half kept
+// scanning: the INT heartbeat seen while asleep), so also send SLEEP IN; enterDeepSleep() then holds
+// both its reset lines low through the expander (Nov 20 2026, battery work). The driver has no
+// disp_sleep, so the command goes out the way its tx_param() sends them over QSPI (0x02 = write).
 void displayOff() {
   ledcWrite(PIN_LCD_BL, 0);
   if (s_panel) esp_lcd_panel_disp_on_off(s_panel, false);
+  if (s_io) {
+    delay(20);                                                  // let a last frame finish sending
+    esp_lcd_panel_io_tx_param(s_io, (0x02 << 24) | (0x10 << 8), nullptr, 0);   // SLPIN
+    delay(120);                                                 // the controller needs ~120 ms to enter sleep
+  }
 }

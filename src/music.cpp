@@ -55,6 +55,7 @@ static float s_lvl = -99, s_steady = 0, s_beat = 0, s_est = 0;
 static bool s_cand = false;
 
 bool musicHeard() { return s_heard; }
+void musicDebug(float& lvl, float& floor, float& beat) { lvl = s_lvl; floor = s_floor; beat = s_beat; }
 float musicBpm() { return s_bpmShown; }
 
 static float pctile(float* v, int n, float p) {     // sorts v in place
@@ -118,7 +119,11 @@ static void analyse() {
   // with speed), but not while music is heard or it would learn the music as background
   if (s_lvl < s_floor) s_floor = s_lvl;
   else if (!s_heard) s_floor += 0.02f;
-  s_cand = s_lvl > s_floor + s_loudDb && s_steady >= s_steadyMin && s_beat >= s_beatMin;
+  // Hysteresis: starting needs the full test, but once bobbing, looser limits keep it going through
+  // quieter bars and road noise (in the car the bob dropped out on its own, Nov 19 2026: road
+  // rumble sits right in the bass band the beat comes from).
+  if (s_heard) s_cand = s_lvl > s_floor + s_loudDb * 0.5f && s_steady >= s_steadyMin - 0.15f && s_beat >= s_beatMin * 0.6f;
+  else s_cand = s_lvl > s_floor + s_loudDb && s_steady >= s_steadyMin && s_beat >= s_beatMin;
 }
 
 void musicUpdate(uint32_t now) {
@@ -138,7 +143,7 @@ void musicUpdate(uint32_t now) {
   bool selfNoise = s_audioAt && now - s_audioAt < (uint32_t)(N / FPS * 1000);
   if (!selfNoise) {
     if (s_cand) { s_no = 0; if (++s_yes >= 3) setHeard(true); }      // ~1.5 s more on top of the window
-    else { s_yes = 0; if (++s_no >= 6) setHeard(false); }           // 3 s without it
+    else { s_yes = 0; if (++s_no >= 16) setHeard(false); }          // 8 s without it (song gap ends it)
     if (s_heard && s_cand) {                                         // follow the tempo, slowly
       if (fabsf(s_est - s_bpm) < s_bpm * 0.15f) s_bpm += (s_est - s_bpm) * 0.3f;
       // only move the bob's tempo on a real change: a jump in BPM jumps the bob's phase

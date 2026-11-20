@@ -22,6 +22,8 @@
 #include "music.h"
 #include "obd.h"
 #include "wifitune.h"
+#include "pwrtest.h"
+#include "drivelog.h"
 
 SpeedInput g_speed;
 void requestSleep();  // main.cpp
@@ -308,11 +310,12 @@ void handleCommand(const char* raw, uint16_t src) {
       delay(50);
     }
     motionInit();                                // back to normal mode
-  } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|thresh 0.x]  (bare = status)
+  } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|nap|thresh 0.x]  (bare = status)
     char b[160];
     if (!strcasecmp(a, "on") || !strcasecmp(a, "off")) {
       g_set.voiceOn = !strcasecmp(a, "on"); settingsSave(); voiceSetEnabled(g_set.voiceOn);
     } else if (!strcasecmp(a, "now")) voiceListenNow();
+    else if (!strcasecmp(a, "nap")) voiceNapNow();
     else if (!strncasecmp(a, "thresh", 6)) voiceSetThreshold(atof(a + 6));
     voiceStatus(b, sizeof(b));
     reply(src, b);
@@ -327,6 +330,22 @@ void handleCommand(const char* raw, uint16_t src) {
     float v = atof(a);
     powerFake(v >= 2.5f && v <= 4.5f ? v : 0);
     reply(src, v >= 2.5f && v <= 4.5f ? "battery reading faked" : "battery reading real");
+  } else if ((a = arg(line, "pwrtest"))) {       // bench power test on battery: pwrtest start [secs] | stop
+    if (!strncasecmp(a, "start", 5)) { int d = atoi(a + 5); pwrtestStart((d > 0 ? d : 30) * 1000UL); reply(src, "pwrtest: unplug USB; results after the restart (pwrtest)"); }
+    else if (!strcasecmp(a, "stop")) pwrtestStop();
+    else pwrtestReport(src, reply);
+  } else if ((a = arg(line, "womint"))) {        // bench: does the IMU knock alarm reach GPIO0 (wake pin)?
+    static uint16_t s_src; s_src = src;
+    int secs = atoi(a);
+    motionWomIntTest(secs > 0 ? secs : 15, [](const char* m) { reply(s_src, m); });
+  } else if ((a = arg(line, "enginelearn"))) {   // = menu ENGINE LEARN; "road" = voice "learn the road"; "tap" = a tap (stop / skip)
+    if (!strcasecmp(a, "tap")) motionEngineLearnTap();
+    else if (!strcasecmp(a, "road")) motionStartRoadLearn();       // = voice "learn the road"
+    else motionStartEngineLearn();
+    reply(src, motionEngineLearning() ? "engine learn: running (serial shows each step)" : "engine learn: not running");
+  } else if ((a = arg(line, "drivelog"))) {      // drive diagnostics: drivelog | drivelog clear
+    if (!strcasecmp(a, "clear")) { drivelogClear(); reply(src, "drivelog cleared"); }
+    else drivelogDump(src, reply);
   } else if ((a = arg(line, "batlog"))) {        // battery log: batlog [mAh] | batlog clear
     if (!strcasecmp(a, "clear")) { powerLogClear(); reply(src, "batlog cleared"); }
     else powerLogDump(src, reply, atof(a));
@@ -404,7 +423,7 @@ void handleCommand(const char* raw, uint16_t src) {
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
     reply(src, "hello voice expr obd wifi mem perf reboot speed launch summary volume answer "
-               "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
+               "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake pwrtest drivelog enginelearn show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {
     reply(src, "unknown command");

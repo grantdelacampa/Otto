@@ -15,6 +15,9 @@ struct MotionState {
   bool  calibrating = false;
   float calibProgress = 0;
   float vib = 0;                      // g RMS engine/road vibration
+  float gyroLP = 0;                   // deg/s, rotation wobble (vs its ~5 s average) smoothed ~1 s
+  float road = 0;                     // g RMS vertical body motion ~0.5-3 Hz (the road, not the engine)
+  float quietSecs = 0;                // gyro + road quiet this long: really stopped, not cruising
   bool  engineOn = false;
   bool  engineStarted = false;        // edge flags: main.cpp clears them after handling
   bool  engineStopped = false;
@@ -43,3 +46,8 @@ void motionLeaveWom();   // after wake-on-motion: soft reset + low-power reading
 // While armed the accel registers stop updating: call motionLeaveWom() (+ ~120 ms) before reading.
 bool motionArmWom(uint8_t mg);
 bool motionWomFired();                 // read + clear the latched flag
+void motionStartEngineLearn();         // menu ENGINE LEARN: idle 20 s, then engine off 10 s -> thresholds
+bool motionEngineLearning();
+void motionEngineLearnTap();           // a tap: stop (idle step) / skip the engine-off step
+void motionStartRoadLearn();           // voice "learn the road": 20 s of steady cruising -> stopped vs cruising
+void motionWomIntTest(int secs, void (*out)(const char*));   // bench `womint`: expander INT -> GPIO0?
