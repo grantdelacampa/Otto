@@ -98,7 +98,11 @@ logic. Fixes:
 - **Rotor-specific:** when the radio link supplies speed, prefer it (speed > ~2 mph = not stopped).
   Keep the IMU logic for standalone mode.
 
-### 7. Per-car learning (optional, after #6)
+### 7. Per-car learning (after #6): ENGINE LEARN recommended, learn the road optional
+Owner, Nov 20 2026: **port ENGINE LEARN for Rotor.** A rotary idles very smoothly, so idle vs engine-off
+by vibration is harder than on Otto's V8, and Rotor's in-car idle vibration test was never done (its
+engine thresholds are untested defaults). "Learn the road" only matters in standalone mode (no radio
+speed). Port it only if the owner wants it.
 - **ENGINE LEARN** (menu / `enginelearn` / voice "learn the engine"): 20 s idling in P, then engine
   off 10 s. Sets idleVib, engineVib = sqrt(off x idle), engOffVib = sqrt(off x on), idleGyro / Road.
   Refuses if idle < 2.5 x off.
