@@ -122,7 +122,7 @@ bool powerCharging() { return s_chg; }
 static const char* LOG = "/batlog.csv";
 static const char* LOG_OLD = "/batlog.old";
 
-void powerLog(const char* event) {
+static void logLine(const char* event, int mv, int pct) {
   File f = LittleFS.open(LOG, FILE_APPEND);
   if (!f) return;
   if (f.size() > 48 * 1024) {                     // keep it small: roll over to one old file
@@ -132,12 +132,20 @@ void powerLog(const char* event) {
     f = LittleFS.open(LOG, FILE_APPEND);
     if (!f) return;
   }
+  f.printf("%lu,%d,%d,%s\n", (unsigned long)rtcNowUtc(), mv, pct, event);
+  f.close();
+}
+
+void powerLog(const char* event) {
   float v = 0;
   for (int i = 0; i < 8; i++) v += readV();   // fresh reading, not the slow filter
   v /= 8;
-  f.printf("%lu,%d,%d,%s\n", (unsigned long)rtcNowUtc(), (int)(v * 1000 + 0.5f), powerPct(), event);
-  f.close();
+  logLine(event, (int)(v * 1000 + 0.5f), powerPct());
 }
+
+// A reading taken earlier (the last sleep peek's), logged now: the cell's real voltage even when the
+// charger went in before the wake (a wake reading then shows the charger: overnight test, Nov 20 2026).
+void powerLogAt(const char* event, int mv) { logLine(event, mv, pctFromV(mv / 1000.0f)); }
 
 void powerLogClear() { LittleFS.remove(LOG); LittleFS.remove(LOG_OLD); }
 

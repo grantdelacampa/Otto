@@ -88,7 +88,10 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
     touch fine. Saving not measured yet (overnight bench run).
   - **Sleep peeks** (Nov 20 2026): overnight on the bench 3.99 -> 3.78 V in 9.4 h (~15 mA asleep).
     Each 4 s peek is a full chip start-up incl. the PSRAM self-test. Now 4 s for the first 15 min
-    parked (`s_peeks < 225`), then 15 s (`peekSecs()`).
+    parked (`s_peeks < 225`), then 15 s (`peekSecs()`). Verified: 1343 peeks in 4.98 h (expected ~1359).
+    batlog on wake: `wake-pk` = the cell voltage from the last full peek (RTC `s_peekMv`, a reading
+    under 4.11 V wins), logged before the wake line so the sleep drain uses it even when the charger
+    went in before the wake (that ruined a 5 h test); then `peeks<N>`.
   - Settings v5 appended idleGyro / idleRoad / cruiseGyro / cruiseRoad (v4 ended on a float).
   - Settings v4 appended driveLogOn + the learned values. v3 ended on a bool, so its blob has tail
     padding: settingsLoad copies only `V3_USED` bytes (offsetof(wirelessOn) + 1).

@@ -55,6 +55,7 @@ static const uint32_t IDLE_FRAME_MS = 83;          // calm faces: 12 fps (see fr
 static const uint8_t WOM_MG = 30;                 // bench: 30 mg caught 4 of 4 light table knocks, 60 mg 2 of 4
 // Sleep-peek diagnostics, printed on the next full wake ("sleep: ..." line)
 RTC_DATA_ATTR static uint32_t s_peeks = 0;
+RTC_DATA_ATTR static uint16_t s_peekMv = 0;   // battery at the last full peek (the cell, even if USB went in later)
 RTC_DATA_ATTR static float s_peekD = 0, s_peekSd = 0;
 RTC_DATA_ATTR static int s_peekGot = -1;
 RTC_DATA_ATTR static float s_peekMean[3] = {0, 0, 0};
@@ -168,6 +169,9 @@ static void quickWakeCheck() {
   float d = 0;
   for (int k = 0; k < 3; k++) d = fmaxf(d, fabsf(sum[k] / got - s_sleepRef[k]));
   s_peeks++; s_peekD = d; s_peekSd = sd; s_peekGot = got;
+  // On USB the ADC shows the charger: only a reading below the charger's ~4.13 V is the cell's own
+  { float v = 0; for (int i = 0; i < 8; i++) v += boardBatteryVolts(); v /= 8;
+    if (v < 4.11f || !s_peekMv) s_peekMv = (uint16_t)(v * 1000 + 0.5f); }
   for (int k = 0; k < 3; k++) s_peekMean[k] = sum[k] / got;
 
   bool vib = sd > peekVibLimit();
@@ -382,6 +386,9 @@ void setup() {
       why = (st & (1ULL << PIN_TP_INT)) ? "wake-touch" : (st & (1ULL << PIN_BTN_BOOT)) ? "wake-boot"
           : (st & (1ULL << PIN_BTN_PWR)) ? "wake-pwr" : "wake-ext1";
     } else if (cause == ESP_SLEEP_WAKEUP_TIMER) why = "wake-peek";
+    // the cell's voltage from the last sleep peek first (named wake-* so batlog's sleep drain uses it)
+    if (!coldBoot && s_peekMv) powerLogAt("wake-pk", s_peekMv);
+    s_peekMv = 0;
     powerLog(why);
     // how many sleep peeks it took (4 s for 15 min, then 15 s): proves the interval on the bench
     if (!coldBoot && s_peeks) { char b[16]; snprintf(b, sizeof(b), "peeks%u", (unsigned)s_peeks); powerLog(b); }
