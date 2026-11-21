@@ -142,7 +142,18 @@ void musicUpdate(uint32_t now) {
   // Otto's own speaker is in the window: hold the current state rather than judge it
   bool selfNoise = s_audioAt && now - s_audioAt < (uint32_t)(N / FPS * 1000);
   if (!selfNoise) {
-    if (s_cand) { s_no = 0; if (++s_yes >= 3) setHeard(true); }      // ~1.5 s more on top of the window
+    // Starting also needs a steady tempo: 4 checks in a row (~2 s) within 8 % of each other. Room
+    // noise passes "steady" easily and a faint ~174 BPM tick sat just under the beat limit, so a TV /
+    // talking / a fan pushing the level up gave false bobbing; noise's tempo jumps around (99, 104,
+    // 94, 173 ... BPM), music's doesn't (owner, Nov 21 2026).
+    static float s_candBpm = 0;
+    if (s_cand) {
+      s_no = 0;
+      if (s_heard) s_yes++;
+      else if (s_yes && fabsf(s_est - s_candBpm) < s_candBpm * 0.08f) s_yes++;
+      else { s_yes = 1; s_candBpm = s_est; }
+      if (s_yes >= 4) setHeard(true);
+    }
     else { s_yes = 0; if (++s_no >= 16) setHeard(false); }          // 8 s without it (song gap ends it)
     if (s_heard && s_cand) {                                         // follow the tempo, slowly
       if (fabsf(s_est - s_bpm) < s_bpm * 0.15f) s_bpm += (s_est - s_bpm) * 0.3f;

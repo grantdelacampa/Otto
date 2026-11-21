@@ -104,6 +104,9 @@ drive off.
 | BOOT | Boop | 2 s: recalibrate mount |
 | PWR  | Battery level | 3 s: power off (on battery) |
 
+**Parked over an hour:** Otto switches himself fully off (nothing drains the battery). Press **PWR** to
+turn him back on. Shorter stops still wake him by motion as before.
+
 **Voice naps to save battery:** "Hi ESP" listens for 5 minutes after he wakes, the engine starts,
 you touch him or open the menu, and after every command; then it naps. Tap him to wake it again. A
 small blue microphone at the lower left of the screen shows while he's listening. The music bob keeps

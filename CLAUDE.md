@@ -80,6 +80,16 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
     GPIO0 at a deep-sleep wake is fine.
     The **NS8002 speaker amp** runs from VCC (battery) with its SD pin tied to ground: always on, even
     in deep sleep (a few mA, part of the sleep floor; no firmware control). Mic EN tied to 3V3 too.
+  - **Sleep result** (overnight bench, Nov 21 2026, after 20 min awake to settle): 3.84 -> 3.63 V in
+    18.1 h (~11 mV/h, roughly ~10 mA), about half the first night's rate; 4457 peeks (as expected).
+    The rest is hardware (always-on NS8002 amp, display panel, ...). So: **auto power-off after 1 h
+    asleep** (`AUTO_OFF_SECS`, `autoPowerOff()` in quickWakeCheck: logs `wake-off` with the cell
+    voltage, then boardPowerOff(); PWR turns him back on; on USB he just keeps sleeping). Bench:
+    `autooff <secs>` sets a shorter limit until the next power-off (RTC memory; a port-open reset
+    clears it, so keep the port open until the unplug).
+  - **Music false starts** (owner, Nov 21 2026): room noise reads steady 1.00 and a faint ~174 BPM tick
+    sat at beat ~0.16 (limit 0.20), so any +6 dB (TV, talking) could start the bob. Starting now
+    also needs a steady tempo: 4 checks in a row within 8 %.
   - **Display chip asleep in deep sleep** (Nov 20 2026): displayOff() now sends SLPIN (0x10, QSPI
     write opcode 0x02 like the driver's tx_param; the driver has no disp_sleep) after DISPOFF, and
     enterDeepSleep() holds TP_RST + LCD_RST (EXIO1/2) low. boardEarlyInit() keeps them low after a

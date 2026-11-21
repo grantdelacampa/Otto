@@ -334,6 +334,13 @@ void handleCommand(const char* raw, uint16_t src) {
     if (!strncasecmp(a, "start", 5)) { int d = atoi(a + 5); pwrtestStart((d > 0 ? d : 30) * 1000UL); reply(src, "pwrtest: unplug USB; results after the restart (pwrtest)"); }
     else if (!strcasecmp(a, "stop")) pwrtestStop();
     else pwrtestReport(src, reply);
+  } else if ((a = arg(line, "autooff"))) {        // bench: autooff <secs> = power off after this long asleep (once)
+    extern void setAutoOffTest(uint32_t);
+    int secs = atoi(a);
+    setAutoOffTest(secs > 0 ? secs : 0);
+    char b[80];
+    snprintf(b, sizeof(b), "autooff: %d s asleep (normal: 3600); unplug USB, it can't power off on USB", secs > 0 ? secs : 3600);
+    reply(src, b);
   } else if ((a = arg(line, "womint"))) {        // bench: does the IMU knock alarm reach GPIO0 (wake pin)?
     static uint16_t s_src; s_src = src;
     int secs = atoi(a);
@@ -423,7 +430,7 @@ void handleCommand(const char* raw, uint16_t src) {
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
     reply(src, "hello voice expr obd wifi mem perf reboot speed launch summary volume answer "
-               "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake pwrtest drivelog enginelearn show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
+               "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake pwrtest drivelog enginelearn autooff show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {
     reply(src, "unknown command");

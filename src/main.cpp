@@ -56,6 +56,7 @@ static const uint8_t WOM_MG = 30;                 // bench: 30 mg caught 4 of 4 
 // Sleep-peek diagnostics, printed on the next full wake ("sleep: ..." line)
 RTC_DATA_ATTR static uint32_t s_peeks = 0;
 RTC_DATA_ATTR static uint16_t s_peekMv = 0;   // battery at the last full peek (the cell, even if USB went in later)
+RTC_DATA_ATTR static uint32_t s_sleptSecs = 0; // asleep this long (sum of the peek timers) since the last full wake
 RTC_DATA_ATTR static float s_peekD = 0, s_peekSd = 0;
 RTC_DATA_ATTR static int s_peekGot = -1;
 RTC_DATA_ATTR static float s_peekMean[3] = {0, 0, 0};
@@ -104,6 +105,7 @@ static void enterDeepSleep(uint32_t timerSecs) {
   rtc_gpio_pullup_en((gpio_num_t)PIN_BTN_PWR);
   esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
   if (timerSecs) esp_sleep_enable_timer_wakeup((uint64_t)timerSecs * 1000000ULL);
+  s_sleptSecs += timerSecs;
   Serial.flush();
   esp_deep_sleep_start();
 }
@@ -125,8 +127,30 @@ static void peekSleep() {
 // near the parked board's own reading: keep the peek clear of that so he doesn't wake on nothing.
 static float peekVibLimit() { return fmaxf(fmaxf(g_set.engineVib * 0.7f, g_set.engOffVib * 2.5f), 0.003f); }
 
+// Parked this long without a wake: power fully off (PWR_HOLD low cuts the battery; nothing drains).
+// Asleep, Otto still drew ~10 mA (the always-on speaker amp + display panel; bench Nov 21 2026),
+// ~20 % of the 500 mAh cell per night. Owner, Nov 21 2026: off after 1 h; PWR turns him back on.
+// On USB power the board can't switch itself off, so it just keeps sleeping.
+static const uint32_t AUTO_OFF_SECS = 3600;
+RTC_DATA_ATTR static uint32_t s_autoOffTest = 0;   // bench `autooff <secs>`: a shorter limit until the next power-off
+void setAutoOffTest(uint32_t secs) { s_autoOffTest = secs; }
+static void autoPowerOff() {
+  if (LittleFS.begin(false)) {                   // note it in the battery log (named wake-* so batlog's
+    rtcInit();                                   // sleep drain ends at this real cell reading)
+    float v = 0;
+    for (int i = 0; i < 8; i++) v += boardBatteryVolts();
+    powerLogAt("wake-off", (int)(v / 8 * 1000 + 0.5f));
+  }
+  Serial.println("sleep: parked 1 h - powering off");
+  Serial.flush();
+  boardPowerOff();
+  delay(500);
+  s_sleptSecs = 0;                               // still here: on USB power
+}
+
 // Woken by the timer: decide quickly whether to boot or go back to sleep.
 static void quickWakeCheck() {
+  if (!s_hotSleep && s_sleptSecs >= (s_autoOffTest ? s_autoOffTest : AUTO_OFF_SECS)) autoPowerOff();
   if (!motionProbeOnly()) return;  // can't tell: do a full boot
 
   if (s_hotSleep) {                // cooling off: only wake once it's well below the limit
@@ -429,7 +453,7 @@ void setup() {
                     s_peekGot, s_peekD, s_peekSd, s_sleepRef[0], s_sleepRef[1], s_sleepRef[2],
                     s_peekMean[0], s_peekMean[1], s_peekMean[2]);
   }
-  s_peeks = 0; s_peekGot = -1;
+  s_peeks = 0; s_peekGot = -1; s_sleptSecs = 0;
   s_lastLoop = millis();
   Serial.println("OTTO " FW_VERSION " ready. Type 'help'.");
 }
