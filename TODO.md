@@ -53,7 +53,9 @@ total; check which readings the car supports with mode 01 PID 00 once connected)
 - [ ] Optional: honest percent (correct for the sag under load) so it doesn't jump after naps
 - [x] Sleep peeks every 4 s -> 15 s after 15 min parked (overnight bench: ~15 mA asleep before)
 - [x] Display / touch chip put to sleep + held in reset while Otto sleeps (bench: wakes fine)
-- [ ] Re-run the overnight bench test with the 15 s peeks + display sleep (expect much less than 82 -> 44 %)
+- [x] Overnight bench with 15 s peeks + display sleep: ~22 -> ~11 mV/h asleep (~10 mA left: hardware)
+- [x] Auto power-off after 1 h asleep (bench-tested with `autooff 120`; PWR turns him back on)
+- [x] Music bob false starts: needs a steady tempo to start (expect much less than 82 -> 44 %)
 - [ ] Clock resets to 2004 when the cell goes flat -> night brightness / holidays wrong until set
 
 ## Driving fixes (Nov 19 2026, need a drive to confirm)

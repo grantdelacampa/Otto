@@ -86,7 +86,8 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
     asleep** (`AUTO_OFF_SECS`, `autoPowerOff()` in quickWakeCheck: logs `wake-off` with the cell
     voltage, then boardPowerOff(); PWR turns him back on; on USB he just keeps sleeping). Bench:
     `autooff <secs>` sets a shorter limit until the next power-off (RTC memory; a port-open reset
-    clears it, so keep the port open until the unplug).
+    clears it, so keep the port open until the unplug). Bench Nov 21: off 124 s into a 120 s test
+    (`wake-off` logged), stayed off until PWR, then a cold boot.
   - **Music false starts** (owner, Nov 21 2026): room noise reads steady 1.00 and a faint ~174 BPM tick
     sat at beat ~0.16 (limit 0.20), so any +6 dB (TV, talking) could start the bob. Starting now
     also needs a steady tempo: 4 checks in a row within 8 %.
