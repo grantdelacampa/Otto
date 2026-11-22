@@ -8,6 +8,8 @@
 void bleInit();
 void bleUpdate(uint32_t now);
 bool bleAnyConnected();
+bool bleTunerConnected();        // the tuning page (subscribed); a paired phone alone doesn't count
+const char* blePhoneStatus();    // last phone clock result (`phone`)
 void bleNotifyTelemetry(const char* json);
 void bleStartLogStream();
 void bleReply(uint16_t conn, const char* msg);   // sent as {"msg":...} on telemetry

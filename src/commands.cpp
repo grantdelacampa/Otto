@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include "config.h"
 #include "ble.h"
+#include <NimBLEDevice.h>
 #include "brain.h"
 #include "board.h"
 #include "motion.h"
@@ -334,6 +335,9 @@ void handleCommand(const char* raw, uint16_t src) {
     if (!strncasecmp(a, "start", 5)) { int d = atoi(a + 5); pwrtestStart((d > 0 ? d : 30) * 1000UL); reply(src, "pwrtest: unplug USB; results after the restart (pwrtest)"); }
     else if (!strcasecmp(a, "stop")) pwrtestStop();
     else pwrtestReport(src, reply);
+  } else if ((a = arg(line, "phone"))) {         // phone clock: last result; "phone forget" = drop all pairings
+    if (!strcasecmp(a, "forget") && bleReady()) { NimBLEDevice::deleteAllBonds(); reply(src, "phone: pairings forgotten (also Forget OTTO on the phone)"); }
+    else reply(src, blePhoneStatus());
   } else if ((a = arg(line, "autooff"))) {        // bench: autooff <secs> = power off after this long asleep (once)
     extern void setAutoOffTest(uint32_t);
     int secs = atoi(a);

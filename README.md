@@ -166,6 +166,19 @@ Open http://localhost:8000/tuning.html and press CONNECT (device name `OTTO`). I
 Bluetooth service UUIDs (`…-4f54544f0000`), so it never connects to Rotor and Rotor's page
 never connects to Otto.
 
+### Phone clock (iPhone)
+Otto's clock chip has no backup battery, so a power-off (flat cell, or the 1 h auto-off) loses the
+time. Pair your phone once and Otto reads its clock and time zone every time it connects:
+
+1. Wake Otto (he advertises quickly for 30 s after a wake or opening the menu).
+2. iPhone: **Settings > Bluetooth**, tap **OTTO** under Other Devices, then **Pair**.
+3. If iOS asks to share notifications, either answer is fine: Otto doesn't use them.
+
+After that the phone reconnects to him by itself when he's awake and nearby. Otto is not a speaker
+or headset (the chip only has Bluetooth Low Energy, which carries no audio). A connected phone does
+**not** keep him awake; only the tuning page does. Serial `phone` shows the last result;
+`phone forget` drops the pairing on Otto's side (also Forget This Device on the phone).
+
 ## 7. Serial console
 
 Same commands over USB and Bluetooth. `help` lists them:

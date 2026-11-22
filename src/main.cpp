@@ -606,7 +606,7 @@ void loop() {
   // sleep when parked with nothing connected
   bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn() || wifiTuneActive() ||
               pwrtestActive() || motionEngineLearning();
-  if (g_motion.ok && g_motion.stillSecs > g_set.sleepMin * 60 && !bleAnyConnected() && !busy) s_wantSleep = true;
+  if (g_motion.ok && g_motion.stillSecs > g_set.sleepMin * 60 && !bleTunerConnected() && !busy) s_wantSleep = true;   // a paired phone alone doesn't block sleep
 
   if (s_wantOff && !otaActive()) powerOff();
   if (s_wantSleep && !otaActive()) goToSleep();

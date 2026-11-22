@@ -275,7 +275,7 @@ static void drawInfo() {
     snprintf(rows[1].v, 24, "%dC", (int)g_motion.tempC);
     rows[1].k = "TEMP";
   }
-  snprintf(rows[2].v, 24, "%s", bleAnyConnected() ? "CONNECTED" : "--");    rows[2].k = "TUNER";
+  snprintf(rows[2].v, 24, "%s", bleTunerConnected() ? "CONNECTED" : "--");    rows[2].k = "TUNER";
   if (rtcValid()) {
     time_t now = time(nullptr) + tzOffsetMin() * 60;
     struct tm t;

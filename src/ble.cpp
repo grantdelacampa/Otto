@@ -6,6 +6,7 @@
 #include "recorder.h"
 #include "ota.h"
 #include "commands.h"
+#include "board.h"
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 
@@ -40,13 +41,21 @@ static void enqueue(uint16_t conn, const std::string& v) {
   xQueueSend(s_q, &m, 0);
 }
 
+static void phoneConnected(ble_gap_conn_desc* d); // phone clock (below)
+static void phoneDisconnected(uint16_t conn);
+static void phoneEncrypted(ble_gap_conn_desc* d);
+static void phoneSlow(uint16_t conn);
+
 class ServerCB : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, ble_gap_conn_desc* d) override {
     s->updateConnParams(d->conn_handle, 24, 48, 0, 400);
     s_advMode = -2;                    // NimBLE stopped advertising: let updateAdvertising() decide
+    phoneConnected(d);
   }
+  void onAuthenticationComplete(ble_gap_conn_desc* d) override { phoneEncrypted(d); }
   void onDisconnect(NimBLEServer* s, ble_gap_conn_desc* d) override {
-    (void)s; (void)d;
+    (void)s;
+    phoneDisconnected(d->conn_handle);
     s_advUntil = millis() + ADV_WINDOW_MS;   // a moment to reconnect (page reload, out of range)
     s_advMode = -2;
   }
@@ -95,6 +104,16 @@ class CfgCB : public NimBLECharacteristicCallbacks {
   }
 };
 
+// Tuning page subscribed: a quick link (live data, OTA). A phone that only lent its clock idles slowly.
+class TelCB : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic* c, ble_gap_conn_desc* d, uint16_t sub) override {
+    (void)c;
+    if (sub) NimBLEDevice::getServer()->updateConnParams(d->conn_handle, 24, 48, 0, 400);
+    else phoneSlow(d->conn_handle);
+  }
+};
+
+
 void bleInit() {
   if (s_inited) return;
   // Nothing needs the radio: don't start the stack (bleUpdate starts it if a setting turns on)
@@ -113,14 +132,32 @@ void bleInit() {
   s_cfg = svc->createCharacteristic(UUID_CONFIG, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE, 512);
   s_cfg->setCallbacks(new CfgCB());
   s_tel = svc->createCharacteristic(UUID_TELEM, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ, 240);
+  s_tel->setCallbacks(new TelCB());
   s_log = svc->createCharacteristic(UUID_LOG, NIMBLE_PROPERTY::NOTIFY, 240);
   NimBLECharacteristic* ota = svc->createCharacteristic(UUID_OTA, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR, 512);
   ota->setCallbacks(new OtaCB());
   svc->start();
 
+  // Phone clock: bond (Just Works, no PIN: Otto has no keypad) so an iPhone can share its time.
+  NimBLEDevice::setSecurityAuth(true, false, true);
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+
+  // Advertising: flags + "looking for" (solicitation) Apple's notification service and the Current
+  // Time Service. The ANCS solicitation is what lists Otto under Settings > Bluetooth on an iPhone and
+  // lets iOS reconnect him by itself after pairing (like a watch). Name + Otto's service UUID go in the
+  // scan response (31-byte limit); the tuning page's filter (service or "OTTO") sees both.
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(UUID_SERVICE);
-  adv->setScanResponse(true);
+  NimBLEAdvertisementData ad, sr;
+  ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+  static const char sol16[] = {3, 0x14, 0x05, 0x18};                       // CTS 0x1805
+  static const char sol128[] = {17, 0x15, (char)0xD0, 0x00, 0x2D, 0x12, 0x1E, 0x4B, 0x0F, (char)0xA4,
+                                (char)0x99, 0x4E, (char)0xCE, (char)0xB5, 0x31, (char)0xF4, 0x05, 0x79};  // ANCS
+  ad.addData(std::string(sol16, sizeof(sol16)));
+  ad.addData(std::string(sol128, sizeof(sol128)));
+  sr.setName(BLE_NAME);
+  sr.setCompleteServices(NimBLEUUID(UUID_SERVICE));
+  adv->setAdvertisementData(ad);
+  adv->setScanResponseData(sr);
   s_advUntil = millis() + ADV_WINDOW_MS;
   s_advMode = -2;
 }
@@ -138,6 +175,9 @@ void bleShutdown() {                  // pwrtest only: the whole stack off (a re
 }
 
 bool bleAnyConnected() { return s_server && s_server->getConnectedCount() > 0; }
+// The tuning page subscribes to telemetry; a paired phone that only lends its clock doesn't, and
+// must not keep Otto awake (awake ~250 mA would flatten the 500 mAh cell in ~2 h).
+bool bleTunerConnected() { return s_tel && s_tel->getSubscribedCount() > 0; }
 
 void bleNotifyTelemetry(const char* json) {
   if (!s_tel || s_tel->getSubscribedCount() == 0) return;
@@ -205,6 +245,160 @@ static void updateAdvertising(uint32_t now) {
   s_advMode = want;
 }
 
+// ------------------------------------------------------------ phone clock --
+// A paired iPhone (or any phone with the standard Current Time Service, 0x1805) lends Otto its
+// clock each time it connects: the RTC has no backup cell, so every power-off loses the time.
+// Otto is the GATT *client* on the phone's own connection (raw NimBLE calls: NimBLEClient can't
+// take over a connection the phone opened). iOS only answers once the link is encrypted: the first
+// read fails with "insufficient authentication", Otto asks to pair (iPhone: "Pair" prompt the first
+// time, silent after). Otto is not an audio device: the S3 only does Bluetooth LE.
+enum class Pc : uint8_t { None, Wait, Disc, Chrs, ReadTz, ReadTime, Secure, Done };
+static volatile Pc s_pc = Pc::None;
+static volatile uint16_t s_pcConn = 0xFFFF;
+static uint32_t s_pcAt = 0;
+static uint16_t s_pcStart, s_pcEnd, s_pcTimeH, s_pcTzH;
+static bool s_pcSecured = false;
+static int8_t s_pcTz = -128;
+static uint8_t s_pcDst = 255;
+static uint8_t s_pcRaw[10];
+static volatile bool s_pcGot = false;          // a reading for bleUpdate (main loop) to apply
+static char s_pcLast[64] = "phone: no reading yet";
+
+static bool s_pcPrivate = false;               // peer uses a private (resolvable) address: phones do
+static void phoneConnected(ble_gap_conn_desc* d) {
+  if (s_pc != Pc::None && s_pc != Pc::Done) return;   // one at a time
+  s_pcConn = d->conn_handle;
+  s_pcPrivate = d->peer_ota_addr.type == BLE_ADDR_RANDOM && (d->peer_ota_addr.val[5] & 0xC0) == 0x40 &&
+                !d->sec_state.encrypted; s_pcSecured = false; s_pcTimeH = s_pcTzH = 0;
+  s_pcAt = millis() + 1500;                    // let the phone finish its own discovery first
+  s_pc = Pc::Wait;
+}
+static void phoneDisconnected(uint16_t conn) {
+  if (conn == s_pcConn) { s_pc = Pc::None; s_pcConn = 0xFFFF; }
+}
+static void phoneSlow(uint16_t conn) {          // idle link: 0.5-1 s interval (6 s timeout)
+  NimBLEServer* sv = NimBLEDevice::getServer();
+  if (sv && conn != 0xFFFF) sv->updateConnParams(conn, 400, 800, 0, 600);
+}
+static void phoneFinish(const char* why) {
+  snprintf(s_pcLast, sizeof(s_pcLast), "phone: %s", why);
+  s_pc = Pc::Done;
+  if (!bleTunerConnected()) phoneSlow(s_pcConn);
+}
+static void phoneEncrypted(ble_gap_conn_desc* d) {
+  if (d->conn_handle != s_pcConn || s_pc != Pc::Secure) return;
+  if (d->sec_state.encrypted) { s_pcAt = millis() + 300; s_pc = Pc::Wait; }   // handles known: read again
+  else phoneFinish("pairing failed");
+}
+static void phoneSecure() {
+  if (s_pcSecured) { phoneFinish("time refused"); return; }
+  s_pcSecured = true; s_pc = Pc::Secure;
+  if (NimBLEDevice::startSecurity(s_pcConn) != 0) phoneFinish("pairing refused");
+}
+static bool authErr(int st) {
+  return st == BLE_HS_ERR_ATT_BASE + BLE_ATT_ERR_INSUFFICIENT_AUTHEN ||
+         st == BLE_HS_ERR_ATT_BASE + BLE_ATT_ERR_INSUFFICIENT_ENC;
+}
+
+static int onTime(uint16_t conn, const ble_gatt_error* e, ble_gatt_attr* a, void*) {
+  if (conn != s_pcConn) return 0;
+  if (e->status == 0 && a && OS_MBUF_PKTLEN(a->om) >= 7) {
+    memset(s_pcRaw, 0, sizeof(s_pcRaw));
+    os_mbuf_copydata(a->om, 0, min((int)OS_MBUF_PKTLEN(a->om), 10), s_pcRaw);
+    s_pcGot = true;
+    phoneFinish("time read");
+  } else if (authErr(e->status)) phoneSecure();
+  else phoneFinish("time read failed");
+  return 0;
+}
+static void readTime() {
+  s_pc = Pc::ReadTime;
+  if (ble_gattc_read(s_pcConn, s_pcTimeH, onTime, nullptr) != 0) phoneFinish("time read failed");
+}
+static int onTz(uint16_t conn, const ble_gatt_error* e, ble_gatt_attr* a, void*) {
+  if (conn != s_pcConn) return 0;
+  if (e->status == 0 && a && OS_MBUF_PKTLEN(a->om) >= 2) {
+    uint8_t b[2];
+    os_mbuf_copydata(a->om, 0, 2, b);
+    s_pcTz = (int8_t)b[0]; s_pcDst = b[1];
+  } else if (authErr(e->status)) { phoneSecure(); return 0; }
+  readTime();
+  return 0;
+}
+static void readNext() {
+  if (!s_pcTimeH) { phoneFinish("no clock on this device"); return; }
+  if (s_pcTzH) {
+    s_pc = Pc::ReadTz; s_pcTz = -128; s_pcDst = 255;
+    if (ble_gattc_read(s_pcConn, s_pcTzH, onTz, nullptr) != 0) readTime();
+  } else readTime();
+}
+static int onChr(uint16_t conn, const ble_gatt_error* e, const ble_gatt_chr* c, void*) {
+  if (conn != s_pcConn) return 0;
+  if (e->status == 0 && c) {
+    uint16_t u = ble_uuid_u16(&c->uuid.u);
+    if (u == 0x2A2B) s_pcTimeH = c->val_handle;       // Current Time
+    if (u == 0x2A0F) s_pcTzH = c->val_handle;         // Local Time Information
+  } else if (e->status == BLE_HS_EDONE) readNext();
+  else phoneFinish("discovery failed");
+  return 0;
+}
+static int onSvc(uint16_t conn, const ble_gatt_error* e, const ble_gatt_svc* sv, void*) {
+  if (conn != s_pcConn) return 0;
+  if (e->status == 0 && sv) { s_pcStart = sv->start_handle; s_pcEnd = sv->end_handle; s_pc = Pc::Chrs; }
+  else if (e->status == BLE_HS_EDONE || e->status == BLE_HS_ERR_ATT_BASE + BLE_ATT_ERR_ATTR_NOT_FOUND) {
+    if (s_pc != Pc::Chrs) {
+      // iOS may show its clock only to a paired device: ask a phone-like peer once, then look again.
+      // PCs (tuning page) use a fixed address and never get a pairing prompt.
+      if (s_pcPrivate && !s_pcSecured) phoneSecure();
+      else phoneFinish("no clock on this device");
+      return 0;
+    }
+    if (ble_gattc_disc_all_chrs(s_pcConn, s_pcStart, s_pcEnd, onChr, nullptr) != 0) phoneFinish("discovery failed");
+  } else phoneFinish("discovery failed");
+  return 0;
+}
+
+static int64_t daysFromCivil(int y, unsigned m, unsigned d) {   // days since 1970-01-01 (Hinnant)
+  y -= m <= 2;
+  const int era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = (unsigned)(y - era * 400);
+  const unsigned doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return (int64_t)era * 146097 + (int64_t)doe - 719468;
+}
+
+static void phoneApply() {                     // main loop: the RTC shares the I2C bus
+  s_pcGot = false;
+  const uint8_t* r = s_pcRaw;
+  int year = r[0] | (r[1] << 8), mon = r[2], day = r[3], hh = r[4], mm = r[5], ss = r[6];
+  if (year < 2024 || mon < 1 || mon > 12 || day < 1 || day > 31 || hh > 23 || mm > 59 || ss > 59) {
+    snprintf(s_pcLast, sizeof(s_pcLast), "phone: bad time %d-%d-%d", year, mon, day);
+    return;
+  }
+  int tz = tzOffsetMin();
+  if (s_pcTz != -128) tz = (s_pcTz + (s_pcDst != 255 ? s_pcDst : 0)) * 15;   // both in 15 min steps
+  int64_t local = daysFromCivil(year, mon, day) * 86400 + hh * 3600 + mm * 60 + ss;
+  time_t utc = (time_t)(local - (int64_t)tz * 60);
+  time_t before = rtcNowUtc();
+  rtcSetUtc(utc);
+  if (tz != tzOffsetMin()) setTzOffsetMin(tz);
+  snprintf(s_pcLast, sizeof(s_pcLast), "phone: %04d-%02d-%02d %02d:%02d:%02d tz %+d min (clock was %s)",
+           year, mon, day, hh, mm, ss, tz, before ? "set" : "unset");
+  Serial.println(s_pcLast);
+}
+
+static void phoneUpdate(uint32_t now) {
+  if (s_pcGot) phoneApply();
+  if (s_pc == Pc::Wait && (int32_t)(now - s_pcAt) >= 0) {
+    if (s_pcTimeH) { readNext(); return; }      // after pairing: handles already found
+    s_pc = Pc::Disc;
+    static const ble_uuid16_t cts = BLE_UUID16_INIT(0x1805);
+    if (ble_gattc_disc_svc_by_uuid(s_pcConn, &cts.u, onSvc, nullptr) != 0) phoneFinish("discovery failed");
+  }
+}
+
+const char* blePhoneStatus() { return s_pcLast; }
+
 static void dropPeers() {             // wireless switched off: let go of the tuning page too
   if (!s_server) return;
   for (uint16_t h : s_server->getPeerDevices()) s_server->disconnect(h);
@@ -223,5 +417,6 @@ void bleUpdate(uint32_t now) {
   CmdMsg m;
   while (xQueueReceive(s_q, &m, 0) == pdTRUE) handleCommand(m.text, m.conn);
   if (s_streaming) streamLog();
+  phoneUpdate(now);
   updateAdvertising(now);
 }

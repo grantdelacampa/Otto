@@ -174,6 +174,17 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
 - Sehr gut: main.cpp counts smooth driving seconds (reset by braking/accel/bump/dizzy/V8/rev/launch).
 - Holiday swap: Rotor's Jun 23 Rotary Day became **Jan 29 PatentDay** (Benz patent 1886, the car's
   birthday) — `Holiday::PatentDay`, `Expr::HolidayPatent`, wreath text "AUTO-GEBURTSTAG".
+- **Phone clock** (ble.cpp, branch `phone-clock`, Nov 22 2026; not yet tried on the owner's iPhone):
+  the RTC has no backup cell. Otto advertises ANCS + CTS (0x1805) service solicitation (name + Otto's
+  UUID moved to the scan response, 31-byte limit) so iOS lists him in Settings > Bluetooth and
+  reconnects him after pairing. On each connect Otto acts as GATT client on the peer's own link (raw
+  `ble_gattc_*`; NimBLEClient can't adopt a peer-opened link): find CTS, read Local Time Info (0x2A0F,
+  tz + DST in 15 min) and Current Time (0x2A2B, local), apply in the main loop (RTC shares I2C).
+  Insufficient auth -> `startSecurity` once (Just Works bonding, NVS-persisted); a private-address peer
+  with no visible CTS also gets one pairing try (PCs use fixed addresses: no prompt). Phone links
+  slow to 0.5-1 s intervals unless telemetry is subscribed. `bleTunerConnected()` (telemetry
+  subscribed) now gates sleep and the menu's TUNER row; `bleAnyConnected()` still drives the BT icon.
+  Serial `phone` / `phone forget`.
 - **OBD-II** (`obd.*`, Nov 14, 2026): BLE central to an ELM327 (the S3 has no classic BT). Pairs with
   the first adapter by name / FFF0 / 18F0 service, saves its address (NVS `obdAddr`). One command at a
   time until the '>' prompt; replies parsed by `findReply()`. Feeds `g_speed`, engine on/off in
