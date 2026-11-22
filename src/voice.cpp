@@ -16,7 +16,6 @@
 #include <esp_partition.h>
 
 void requestSleep();  // main.cpp
-bool isNight();       // main.cpp
 
 // Phonemes generated with the Arduino ESP_SR tool (needs `pip install g2p_en`):
 //   python gen_sr_commands.py "lets drag race,drag race,launch mode;open menu,show menu;..."
@@ -281,8 +280,8 @@ static void act(int cmd) {
       menuOpen();
       break;
     case VC_BRIGHTER: case VC_DIMMER: {
-      int* bri = isNight() ? &g_set.nightBri : &g_set.dayBri;
-      *bri = constrain(*bri + (cmd == VC_BRIGHTER ? 15 : -15), 10, 100);
+      int* bri = &g_set.dayBri;   // one brightness (Nov 22 2026)
+      *bri = constrain(*bri + (cmd == VC_BRIGHTER ? 15 : -15), 5, 100);
       settingsSave();
       snprintf(big, sizeof(big), "%d%%", *bri);
       show("BRIGHTNESS", big, "", 2000);
@@ -302,11 +301,11 @@ static void act(int cmd) {
       return;                                        // no chirp, obviously
     default:
       if (cmd >= VC_BRIGHT && cmd < VC_BRIGHT + (int)(sizeof(kBriLevels) / sizeof(int))) {
-        int* bri = isNight() ? &g_set.nightBri : &g_set.dayBri;   // "brightness fifty" etc.
+        int* bri = &g_set.dayBri;   // "brightness fifty" etc.
         *bri = kBriLevels[cmd - VC_BRIGHT];
         settingsSave();
         snprintf(big, sizeof(big), "%d%%", *bri);
-        show("BRIGHTNESS", big, isNight() ? "NIGHT" : "", 2000);
+        show("BRIGHTNESS", big, "", 2000);
         break;
       }
       if (cmd >= VC_VOLUME && cmd < VC_VOLUME + (int)(sizeof(kVolLevels) / sizeof(int))) {

@@ -304,8 +304,6 @@ static void powerOff() {
 }
 
 // --------------------------------------------------------------- frame ----
-static bool s_night = false;
-bool isNight() { return s_night; }   // voice.cpp: which brightness to change
 
 static BrainCtx buildCtx() {
   BrainCtx c;
@@ -314,7 +312,6 @@ static BrainCtx buildCtx() {
   c.hadDriven = g_motion.hadDriven;
   int h = localHour();
   c.night = h >= 0 && (h >= 19 || h < 7);
-  s_night = c.night;
   c.batPct = powerPct();
   c.tempC = g_motion.tempC;
   c.calibProgress = g_motion.calibProgress;
@@ -361,7 +358,9 @@ static void frame(uint32_t now, float dt, const BrainCtx& ctx) {
     if (g_bootLogN < BOOT_LOG && now < 8000)                 // `perf boot`: the first frames after power-on
       g_bootLog[g_bootLogN++] = {now, (uint16_t)((micros() - t0) / 100), (uint8_t)brainCurrent()};
   }
-  int bri = ctx.night ? g_set.nightBri : g_set.dayBri;
+  // One brightness: the clock is lost at every power-off (no RTC backup cell, 1 h auto-off), so
+  // a night level rarely applied (owner, Nov 22 2026). nightBri stays in Settings for the blob layout.
+  int bri = g_set.dayBri;
   if (brainCurrent() == Expr::Sleep) bri = bri / 3;
   if (hot) bri = min(bri, 20);
   if (g_ptBri >= 0) bri = g_ptBri;

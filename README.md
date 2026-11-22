@@ -93,7 +93,7 @@ Halloween (jack-o'-lantern piston), Thanksgiving, Christmas.
 | Drag around the edge / flick | Turn the crank: the piston strokes with your finger, coasts when you let go; a hard flick ends dizzy |
 | Tap, then tap and hold 0.6 s | Config menu (only when stopped) |
 
-Menu: BRIGHTNESS, NIGHT BRIGHT, VOLUME, GREETINGS, REVS, V8 MODE, MUSIC BOB, BORED, YAWNS,
+Menu: BRIGHTNESS, VOLUME, GREETINGS, REVS, V8 MODE, MUSIC BOB, BORED, YAWNS,
 HOLIDAYS, MOTION WAKE, BIRTHDAY, VOICE, PRO TREE, LAUNCH MODE, CAR SHOW, GUARD, OBD ADAPTER,
 ENGINE CODES, WIRELESS, WI-FI TUNING, RECALIBRATE, ENGINE LEARN, DRIVE LOG, INFO, EXIT. **WIRELESS** off = no Bluetooth and
 no Wi-Fi tuning at all (turn it back on here to use the tuning page). Swipe up/down to scroll, tap to pick; it closes after 15 s untouched or when you

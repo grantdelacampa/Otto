@@ -30,8 +30,7 @@ struct Item {
 };
 
 static Item s_items[] = {
-  {"BRIGHTNESS",   Kind::Value,  &g_set.dayBri,   nullptr, 10, 100, 5, Act::None},
-  {"NIGHT BRIGHT", Kind::Value,  &g_set.nightBri, nullptr, 5, 100, 5, Act::None},
+  {"BRIGHTNESS",   Kind::Value,  &g_set.dayBri,   nullptr, 5, 100, 5, Act::None},
   {"VOLUME",       Kind::Value,  &g_set.volume,   nullptr, 0, 100, 10, Act::None},
   {"GREETINGS",    Kind::Toggle, nullptr, &g_set.greetOn, 0, 0, 0, Act::None},
   {"REVS",         Kind::Toggle, nullptr, &g_set.revOn,   0, 0, 0, Act::None},

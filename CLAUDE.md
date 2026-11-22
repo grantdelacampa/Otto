@@ -39,6 +39,9 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
     too small to measure), `wirelessOn` (menu WIRELESS) = no
     BLE stack (unless obdOn) and no Wi-Fi tuning. The drive that prompted it (Nov 19): ~1 h 53 min
     awake + 4 h 44 min asleep on one charge, ~270 mA awake; sleep drain negligible.
+  - **One brightness** (owner, Nov 22 2026): NIGHT BRIGHT removed (menu, voice, tuning page); the RTC
+    has no backup cell, so every power-off (incl. the 1 h auto-off) loses the clock and a night level
+    rarely applied. `nightBri` stays in Settings (blob layout); `ctx.night` still drives yawns.
   - Glow (perf, Nov 19 2026): the strength costs nothing (only colour); glow 0 saves ~2.4 of ~35 ms
     draw. Owner's brightness: 10 % day + night (also the defaults now).
   - **Driving fixes** (owner's drive, Nov 19 2026), all IMU-only (no speed): `stoppedSecs` counts up
