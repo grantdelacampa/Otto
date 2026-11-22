@@ -160,6 +160,22 @@ void musicUpdate(uint32_t now) {
       if (s_yes >= 4) setHeard(true);
     }
     else { s_yes = 0; if (++s_no >= 16) setHeard(false); }          // 8 s without it (song gap ends it)
+    // Staying on needs the tempo too: of the last 16 checks (8 s), at least 5 within 8 % of the bob's
+    // tempo (or half / double it). An office with a fan / PC / typing passed the loose keep limits
+    // forever while its tempo hopped 81 -> 105 -> 118 -> 134 -> 157 BPM (owner, Nov 22 2026).
+    static uint16_t s_onTempo = 0;                                   // one bit per check, newest = bit 0
+    static uint8_t s_tempoN = 0;
+    if (!s_heard) { s_onTempo = 0; s_tempoN = 0; }
+    else {
+      auto near = [](float a, float b) { return fabsf(a - b) < b * 0.08f; };
+      bool on = s_cand && (near(s_est, s_bpm) || near(s_est, s_bpm * 2) || near(s_est, s_bpm * 0.5f));
+      s_onTempo = (uint16_t)((s_onTempo << 1) | (on ? 1 : 0));
+      if (s_tempoN < 16) s_tempoN++;
+      if (s_tempoN >= 16 && __builtin_popcount(s_onTempo) < 5) {
+        setHeard(false);
+        Serial.println("music: tempo wandered, stopped");
+      }
+    }
     if (s_heard && s_cand) {                                         // follow the tempo, slowly
       if (fabsf(s_est - s_bpm) < s_bpm * 0.15f) s_bpm += (s_est - s_bpm) * 0.3f;
       // only move the bob's tempo on a real change: a jump in BPM jumps the bob's phase
