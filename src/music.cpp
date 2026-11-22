@@ -34,12 +34,17 @@ void musicFeed(const int16_t* s, size_t n) {
 }
 
 // ---- analysis (main loop, twice a second) ----
-// Tunable on the bench with `music loud -55` / `music beat 0.2` (not saved).
+// Tunable on the bench with `music loud 6` / `music beat 0.2` / `music min -52` (not saved).
 // Loud = the last 2 s are this far above the background (learned: the quietest it's been lately).
 // Bench, Nov 2026: quiet room -60.5 dB, phone music at 30 cm -51.5, talking -36..-48 but gappy.
 static float s_loudDb = 6;        // dB above the background
 static float s_steadyMin = 0.85f; // share of the last 4 s that isn't a gap (speech has gaps, music doesn't)
 static float s_beatMin = 0.20f;   // autocorrelation peak of the bass kicks at the beat period
+// Absolute floor (dBFS): a silent office read -55.8 dB with a faint ~157 BPM tick (fan / hum) and the
+// background learned at -61.7, so it passed "+6 dB" and the looser keep limits held the bob on with
+// no music at all (owner, Nov 22 2026). Starting needs > s_minDb, staying > s_minDb - 3. Phone music
+// at 30 cm read -51.5 on the bench; car speakers should be far louder (check `drivelog` lvl).
+static float s_minDb = -52;
 static const int LAG_MIN = 9, LAG_MAX = 34;   // beat strength: any period from 208 .. 55 BPM
 // Tempo for the bob: only 82-170 BPM. Bench: a 118 BPM song's kick lands every other beat and read
 // as 59 BPM when any period was allowed.
@@ -122,8 +127,8 @@ static void analyse() {
   // Hysteresis: starting needs the full test, but once bobbing, looser limits keep it going through
   // quieter bars and road noise (in the car the bob dropped out on its own, Nov 19 2026: road
   // rumble sits right in the bass band the beat comes from).
-  if (s_heard) s_cand = s_lvl > s_floor + s_loudDb * 0.5f && s_steady >= s_steadyMin - 0.15f && s_beat >= s_beatMin * 0.6f;
-  else s_cand = s_lvl > s_floor + s_loudDb && s_steady >= s_steadyMin && s_beat >= s_beatMin;
+  if (s_heard) s_cand = s_lvl > s_floor + s_loudDb * 0.5f && s_lvl > s_minDb - 3 && s_steady >= s_steadyMin - 0.15f && s_beat >= s_beatMin * 0.6f;
+  else s_cand = s_lvl > s_floor + s_loudDb && s_lvl > s_minDb && s_steady >= s_steadyMin && s_beat >= s_beatMin;
 }
 
 void musicUpdate(uint32_t now) {
@@ -168,8 +173,8 @@ void musicUpdate(uint32_t now) {
 }
 
 void musicStatus(char* b, size_t n) {
-  snprintf(b, n, "music: %s (%.0f BPM); level %.1f dB (background %.1f, needs +%.0f), steady %.2f (min %.2f), beat %.2f (min %.2f), est %.0f BPM%s",
-           s_heard ? "HEARD" : "not heard", s_bpmShown, s_lvl, s_floor, s_loudDb, s_steady, s_steadyMin, s_beat, s_beatMin, s_est,
+  snprintf(b, n, "music: %s (%.0f BPM); level %.1f dB (background %.1f, needs +%.0f and > %.0f), steady %.2f (min %.2f), beat %.2f (min %.2f), est %.0f BPM%s",
+           s_heard ? "HEARD" : "not heard", s_bpmShown, s_lvl, s_floor, s_loudDb, s_minDb, s_steady, s_steadyMin, s_beat, s_beatMin, s_est,
            g_set.bobOn ? "" : "; MUSIC BOB is off");
 }
 
@@ -182,4 +187,5 @@ void musicSetThresholds(const char* what, float v) {
   if (!strcasecmp(what, "loud")) s_loudDb = v;
   else if (!strcasecmp(what, "beat")) s_beatMin = v;
   else if (!strcasecmp(what, "steady")) s_steadyMin = v;
+  else if (!strcasecmp(what, "min")) s_minDb = v;
 }

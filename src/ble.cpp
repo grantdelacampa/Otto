@@ -146,18 +146,7 @@ void bleInit() {
   // Time Service. The ANCS solicitation is what lists Otto under Settings > Bluetooth on an iPhone and
   // lets iOS reconnect him by itself after pairing (like a watch). Name + Otto's service UUID go in the
   // scan response (31-byte limit); the tuning page's filter (service or "OTTO") sees both.
-  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  NimBLEAdvertisementData ad, sr;
-  ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
-  static const char sol16[] = {3, 0x14, 0x05, 0x18};                       // CTS 0x1805
-  static const char sol128[] = {17, 0x15, (char)0xD0, 0x00, 0x2D, 0x12, 0x1E, 0x4B, 0x0F, (char)0xA4,
-                                (char)0x99, 0x4E, (char)0xCE, (char)0xB5, 0x31, (char)0xF4, 0x05, 0x79};  // ANCS
-  ad.addData(std::string(sol16, sizeof(sol16)));
-  ad.addData(std::string(sol128, sizeof(sol128)));
-  sr.setName(BLE_NAME);
-  sr.setCompleteServices(NimBLEUUID(UUID_SERVICE));
-  adv->setAdvertisementData(ad);
-  adv->setScanResponseData(sr);
+  // (set again before every start in updateAdvertising: see setAdvData)
   s_advUntil = millis() + ADV_WINDOW_MS;
   s_advMode = -2;
 }
@@ -222,6 +211,36 @@ static void streamLog() {
   }
 }
 
+// Raw payloads, handed to the stack right before each start: set once in bleInit they never went
+// out (Nov 22 2026: no advertising at all; the host may not have been synced yet, and a host reset
+// drops them).
+static int s_advRc = 0, s_rspRc = 0;
+static bool s_advStartOk = false;
+static void setAdvData() {
+  static const uint8_t ad[] = {
+    2, 0x01, BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,                       // flags
+    3, 0x14, 0x05, 0x18,                                                              // solicit CTS 0x1805
+    17, 0x15, 0xD0, 0x00, 0x2D, 0x12, 0x1E, 0x4B, 0x0F, 0xA4, 0x99, 0x4E, 0xCE, 0xB5, 0x31, 0xF4, 0x05, 0x79};  // solicit ANCS
+  uint8_t sr[31]; size_t n = 0;
+  const size_t nl = strlen(BLE_NAME);
+  sr[n++] = nl + 1; sr[n++] = 0x09; memcpy(sr + n, BLE_NAME, nl); n += nl;          // complete name
+  NimBLEUUID u(UUID_SERVICE);
+  const ble_uuid128_t* u128 = (const ble_uuid128_t*)u.getNative();
+  sr[n++] = 17; sr[n++] = 0x07; memcpy(sr + n, u128->value, 16); n += 16;            // Otto's service
+  // through NimBLE's setters (they mark the data as custom, or start() builds its own over it);
+  // the raw calls first only to learn the stack's return codes
+  s_advRc = ble_gap_adv_set_data(ad, sizeof(ad));
+  s_rspRc = ble_gap_adv_rsp_set_data(sr, n);
+  NimBLEAdvertisementData a, r;
+  a.addData((char*)ad, sizeof(ad));
+  r.addData((char*)sr, n);
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  adv->setAdvertisementData(a);
+  adv->setScanResponseData(r);
+}
+bool bleAdvertisingOk() { return s_advStartOk && !s_advRc && !s_rspRc; }
+int bleAdvRc(int which) { return which ? s_rspRc : s_advRc; }
+
 static void updateAdvertising(uint32_t now) {
   int want;
   if (s_testAdv >= 0) want = s_testAdv;
@@ -240,7 +259,10 @@ static void updateAdvertising(uint32_t now) {
     static const uint16_t mins[] = {0, 1600, 32}, maxs[] = {0, 3200, 64};  // x 0.625 ms
     adv->setMinInterval(mins[want]);
     adv->setMaxInterval(maxs[want]);
-    adv->start();
+    setAdvData();
+    s_advStartOk = adv->start();
+    if (!s_advStartOk || s_advRc || s_rspRc)
+      Serial.printf("ble: advertising start %s (data rc %d, scan response rc %d)\n", s_advStartOk ? "ok" : "FAILED", s_advRc, s_rspRc);
   }
   s_advMode = want;
 }

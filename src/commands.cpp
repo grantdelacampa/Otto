@@ -337,7 +337,13 @@ void handleCommand(const char* raw, uint16_t src) {
     else pwrtestReport(src, reply);
   } else if ((a = arg(line, "phone"))) {         // phone clock: last result; "phone forget" = drop all pairings
     if (!strcasecmp(a, "forget") && bleReady()) { NimBLEDevice::deleteAllBonds(); reply(src, "phone: pairings forgotten (also Forget OTTO on the phone)"); }
-    else reply(src, blePhoneStatus());
+    else {
+      extern int bleAdvRc(int);
+      char b[120];
+      snprintf(b, sizeof(b), "%s; ble %s, advertising %s (rc %d/%d)", blePhoneStatus(), bleReady() ? "on" : "off",
+               bleAdvertising() ? "yes" : "no", bleReady() ? bleAdvRc(0) : 0, bleReady() ? bleAdvRc(1) : 0);
+      reply(src, b);
+    }
   } else if ((a = arg(line, "autooff"))) {        // bench: autooff <secs> = power off after this long asleep (once)
     extern void setAutoOffTest(uint32_t);
     int secs = atoi(a);
