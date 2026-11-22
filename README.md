@@ -170,9 +170,10 @@ never connects to Otto.
 Otto's clock chip has no backup battery, so a power-off (flat cell, or the 1 h auto-off) loses the
 time. Pair your phone once and Otto reads its clock and time zone every time it connects:
 
-1. Wake Otto (he advertises quickly for 30 s after a wake or opening the menu).
+1. Wake Otto with **WIRELESS** on (he advertises quickly for 30 s after a wake or opening the menu).
 2. iPhone: **Settings > Bluetooth**, tap **OTTO** under Other Devices, then **Pair**.
-3. If iOS asks to share notifications, either answer is fine: Otto doesn't use them.
+
+To iOS he looks like a small media remote (that's what gets him listed); he never presses anything.
 
 After that the phone reconnects to him by itself when he's awake and nearby. Otto is not a speaker
 or headset (the chip only has Bluetooth Low Energy, which carries no audio). A connected phone does

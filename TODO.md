@@ -11,8 +11,9 @@
 - [x] Bench: display, touch (tap, pet, crank drag), I2C devices, voice, battery ADC
 
 ## Next
-- [ ] Phone clock (branch `phone-clock`, Nov 22 2026): pair the iPhone, check `phone`, check iOS
-      reconnects on its own after a sleep, and that the phone link doesn't stop him sleeping
+- [x] Phone clock (branch `phone-clock`, Nov 22 2026): paired from iPhone Settings, clock read
+- [ ] Phone clock: iOS reconnects on its own after a sleep? On-screen keyboard still shows with
+      Otto (a remote) connected? The phone link doesn't stop him sleeping?
 - [x] Fast taps reach grumpy again (touch reader task, Nov 15 2026)
 - [x] Smoother animation: glow strokes without anti-aliasing, 80 MHz screen bus, speech task at the
       main loop's priority (voice off ~17 fps, "Hi ESP" ~12)
