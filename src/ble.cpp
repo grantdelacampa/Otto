@@ -7,10 +7,13 @@
 #include "ota.h"
 #include "commands.h"
 #include "board.h"
+#include "power.h"
 #include <NimBLEDevice.h>
+#include <NimBLEHIDDevice.h>
 #include <Preferences.h>
 
 void handleCommand(const char* line, uint16_t source);  // commands.cpp
+static NimBLEHIDDevice* s_hid = nullptr;
 
 static NimBLEServer* s_server = nullptr;
 static NimBLECharacteristic *s_cmd, *s_cfg, *s_tel, *s_log;
@@ -138,14 +141,38 @@ void bleInit() {
   ota->setCallbacks(new OtaCB());
   svc->start();
 
+  // Media-remote face for iOS (owner, Nov 22 2026): iOS's Settings > Bluetooth lists only devices
+  // offering a service it uses itself (keyboards, mice, game controllers, remotes); a plain BLE
+  // gadget never shows. So Otto also offers HID as a consumer-control remote (volume up / down
+  // bits, no keyboard keys) that NEVER sends a report: it only gets him listed, paired (the input
+  // report needs encryption) and reconnected by iOS on its own. The battery service reports his cell.
+  s_hid = new NimBLEHIDDevice(s_server);
+  s_hid->manufacturer("OTTO");
+  s_hid->pnp(0x02, 0xE420, 0x0210, 0x0100);       // USB-IF style ids: made-up (no real vendor)
+  s_hid->hidInfo(0x00, 0x00);
+  static uint8_t kRemoteMap[] = {
+    0x05, 0x0C,        // usage page: consumer
+    0x09, 0x01,        // usage: consumer control
+    0xA1, 0x01,        // collection (application)
+    0x85, 0x01,        //   report id 1
+    0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x02,
+    0x09, 0xE9,        //   volume up
+    0x09, 0xEA,        //   volume down
+    0x81, 0x02,        //   input (data, var, abs)
+    0x95, 0x06, 0x81, 0x03,   // 6 bits padding
+    0xC0};
+  s_hid->reportMap(kRemoteMap, sizeof(kRemoteMap));
+  s_hid->inputReport(1);
+  s_hid->startServices();
+  s_hid->setBatteryLevel((uint8_t)constrain(powerPct(), 0, 100));
+
   // Phone clock: bond (Just Works, no PIN: Otto has no keypad) so an iPhone can share its time.
   NimBLEDevice::setSecurityAuth(true, false, true);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
-  // Advertising: flags + "looking for" (solicitation) Apple's notification service and the Current
-  // Time Service. The ANCS solicitation is what lists Otto under Settings > Bluetooth on an iPhone and
-  // lets iOS reconnect him by itself after pairing (like a watch). Name + Otto's service UUID go in the
-  // scan response (31-byte limit); the tuning page's filter (service or "OTTO") sees both.
+  // Advertising (setAdvData): flags, appearance "remote control", the HID service and a Current Time
+  // Service solicitation; name + Otto's service UUID go in the scan response (31-byte limit), so the
+  // tuning page's filter (service or "OTTO") still sees both.
   // (set again before every start in updateAdvertising: see setAdvData)
   s_advUntil = millis() + ADV_WINDOW_MS;
   s_advMode = -2;
@@ -160,7 +187,7 @@ void bleShutdown() {                  // pwrtest only: the whole stack off (a re
   if (!s_inited) return;
   NimBLEDevice::deinit(true);
   s_inited = false;
-  s_server = nullptr; s_tel = s_log = s_cmd = s_cfg = nullptr;
+  s_server = nullptr; s_tel = s_log = s_cmd = s_cfg = nullptr; s_hid = nullptr;
 }
 
 bool bleAnyConnected() { return s_server && s_server->getConnectedCount() > 0; }
@@ -217,10 +244,12 @@ static void streamLog() {
 static int s_advRc = 0, s_rspRc = 0;
 static bool s_advStartOk = false;
 static void setAdvData() {
+  // (the ANCS solicitation didn't get Otto listed on iOS and no longer fits next to HID: dropped)
   static const uint8_t ad[] = {
     2, 0x01, BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,                       // flags
-    3, 0x14, 0x05, 0x18,                                                              // solicit CTS 0x1805
-    17, 0x15, 0xD0, 0x00, 0x2D, 0x12, 0x1E, 0x4B, 0x0F, 0xA4, 0x99, 0x4E, 0xCE, 0xB5, 0x31, 0xF4, 0x05, 0x79};  // solicit ANCS
+    3, 0x19, 0x80, 0x01,                                                              // appearance: remote control
+    3, 0x03, 0x12, 0x18,                                                              // services: HID 0x1812
+    3, 0x14, 0x05, 0x18};                                                             // solicit CTS 0x1805
   uint8_t sr[31]; size_t n = 0;
   const size_t nl = strlen(BLE_NAME);
   sr[n++] = nl + 1; sr[n++] = 0x09; memcpy(sr + n, BLE_NAME, nl); n += nl;          // complete name
@@ -440,5 +469,7 @@ void bleUpdate(uint32_t now) {
   while (xQueueReceive(s_q, &m, 0) == pdTRUE) handleCommand(m.text, m.conn);
   if (s_streaming) streamLog();
   phoneUpdate(now);
+  static uint32_t s_batAt = 0;                   // the remote's battery level (iOS battery widget)
+  if (s_hid && now - s_batAt > 60000) { s_batAt = now; s_hid->setBatteryLevel((uint8_t)constrain(powerPct(), 0, 100)); }
   updateAdvertising(now);
 }
