@@ -183,7 +183,7 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   music, and no bob starts in the first 30 s after a wake. Staying on needs 5 of the last 16 checks
   on tempo (an office's tempo hopped 81-157 BPM). Absolute floor -52 dBFS to start, -55 to stay.
 - **Car noise learn** (Nov 22 2026, settings v6 appended idleNoiseDb / idleBeat / idleBpm / cruiseNoiseDb;
-  not yet run in the car, v5 -> v6 migration not yet seen on the board): ENGINE LEARN's idle phase and
+  not yet run in the car; v5 -> v6 migration checked on the board): ENGINE LEARN's idle phase and
   learn the road also sample the music analysis every 500 ms (needs MUSIC BOB on: that's what runs it).
   Idle: median level + beat, and the tempo a third of the estimates agree on (6 %) = the V8's rhythm.
   Road: 30th percentile level. music.cpp: with the engine on, the background never sits below the
