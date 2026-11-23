@@ -174,7 +174,7 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
 - Sehr gut: main.cpp counts smooth driving seconds (reset by braking/accel/bump/dizzy/V8/rev/launch).
 - Holiday swap: Rotor's Jun 23 Rotary Day became **Jan 29 PatentDay** (Benz patent 1886, the car's
   birthday) — `Holiday::PatentDay`, `Expr::HolidayPatent`, wreath text "AUTO-GEBURTSTAG".
-- **Phone clock** (ble.cpp, branch `phone-clock`, Nov 22 2026; **works on the owner's iPhone**: paired
+- **Phone clock** (ble.cpp, branch `phone-clock`, Nov 22 2026; **works on the owner's iPhone**: keyboard unaffected, iOS reconnects him on wake; paired
   from Settings > Bluetooth, read 14:45 tz -480): the RTC has no backup cell. iOS Settings lists only
   devices with a service it uses itself (an ANCS solicitation did NOT get him listed), so Otto is also
   a **HID consumer-control remote** (volume up / down bits, never sends a report; appearance 0x0180,

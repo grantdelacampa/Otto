@@ -12,8 +12,9 @@
 
 ## Next
 - [x] Phone clock (branch `phone-clock`, Nov 22 2026): paired from iPhone Settings, clock read
-- [ ] Phone clock: iOS reconnects on its own after a sleep? On-screen keyboard still shows with
-      Otto (a remote) connected? The phone link doesn't stop him sleeping?
+- [x] Phone clock: iOS reconnects by itself as soon as he wakes; the on-screen keyboard still works
+      with Otto (a remote) connected (owner's iPhone, Nov 22 2026)
+- [ ] Watch: does he still fall asleep with the phone connected? (sleep ignores the phone link by design)
 - [x] Fast taps reach grumpy again (touch reader task, Nov 15 2026)
 - [x] Smoother animation: glow strokes without anti-aliasing, 80 MHz screen bus, speech task at the
       main loop's priority (voice off ~17 fps, "Hi ESP" ~12)
