@@ -174,6 +174,14 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
 - Sehr gut: main.cpp counts smooth driving seconds (reset by braking/accel/bump/dizzy/V8/rev/launch).
 - Holiday swap: Rotor's Jun 23 Rotary Day became **Jan 29 PatentDay** (Benz patent 1886, the car's
   birthday) — `Holiday::PatentDay`, `Expr::HolidayPatent`, wreath text "AUTO-GEBURTSTAG".
+- **Low battery** (owner, Nov 22 2026): the "PLUG ME IN" card once each at 15 / 8 / 4 % (was every 90 s;
+  a wake re-warns once at the current level, charging re-arms). Idle / Bored look tired below 15 %
+  (heavy lids), 8 % (sad brows, dimmer), 4 % (gray); not while charging (on a USB host = charging).
+- **Music in the car** (drive log, Nov 22 2026): the cabin reads -8..-25 dB and the V8 idling gave a
+  steady -22 dB with beat 0.3-0.45, while the background sat at ~-58 from a quiet moment and crept up
+  only 2.4 dB/min, so idle rumble bobbed him. The background now rises 1 dB/s while it's loud with no
+  music, and no bob starts in the first 30 s after a wake. Staying on needs 5 of the last 16 checks
+  on tempo (an office's tempo hopped 81-157 BPM). Absolute floor -52 dBFS to start, -55 to stay.
 - **Phone clock** (ble.cpp, branch `phone-clock`, Nov 22 2026; **works on the owner's iPhone**: keyboard unaffected, iOS reconnects him on wake; paired
   from Settings > Bluetooth, read 14:45 tz -480): the RTC has no backup cell. iOS Settings lists only
   devices with a service it uses itself (an ANCS solicitation did NOT get him listed), so Otto is also

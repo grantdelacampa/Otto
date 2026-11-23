@@ -313,6 +313,7 @@ static BrainCtx buildCtx() {
   int h = localHour();
   c.night = h >= 0 && (h >= 19 || h < 7);
   c.batPct = powerPct();
+  c.charging = powerCharging();
   c.tempC = g_motion.tempC;
   c.calibProgress = g_motion.calibProgress;
   c.lon = g_motion.lon;
@@ -565,7 +566,16 @@ void loop() {
   bool full = powerFull();
   if (full && !s_wasFull) { brainEvent(Expr::Charged, 4000); audioChirp(900, 1800, 200); }
   s_wasFull = full;
-  if (!chg && pct < 15 && now - s_lastLowBatt > 90000) { s_lastLowBatt = now; brainEvent(Expr::LowBattery, 4000); }
+  // Low battery: once each at 15, 8 and 4 % (owner, Nov 22 2026; it used to repeat every 90 s). In
+  // between, his calm faces look more and more tired (brain.cpp). A wake is a reboot, so after a
+  // sleep he warns once more at the level he's at. Plugging in re-arms all three.
+  static int s_warnedAt = 100;
+  if (chg) s_warnedAt = 100;
+  else {
+    static const int kWarn[] = {15, 8, 4};
+    for (int w : kWarn)
+      if (pct < w && s_warnedAt > w) { s_warnedAt = w; s_lastLowBatt = now; brainEvent(Expr::LowBattery, 4000); break; }
+  }
   if (!chg && powerVolts() < 3.35f && powerVolts() > 2.5f) s_wantOff = true;  // protect the cell
   if (g_motion.tempC > g_set.overheatC && now - s_lastHot > 30000) { s_lastHot = now; brainEvent(Expr::Overheat, 4000); }
   if (g_motion.tempC > g_set.hotOffC && !otaActive()) {

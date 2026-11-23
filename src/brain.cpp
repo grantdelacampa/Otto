@@ -540,6 +540,17 @@ static void build(Expr e, uint32_t now, uint32_t start, const BrainCtx& ctx, Fac
         f.rdy -= 6 * fabsf(sinf(t * 2 * PI / 0.4f));  // hat hops on braking
     }
   }
+
+  // Tired as the cell runs down (owner, Nov 22 2026): calm faces only, never while charging.
+  // < 15 %: heavy lids, slower pump. < 8 %: droopier, sad brows, dimmer. < 4 %: barely awake, gray.
+  if (!ctx.charging && ctx.batPct < 15 && (e == Expr::Idle || e == Expr::Bored)) {
+    int tired = ctx.batPct < 4 ? 3 : ctx.batPct < 8 ? 2 : 1;
+    f.eye = Eye::Half;
+    f.eyeDY = (float)(tired * 2);
+    f.spin = fminf(f.spin, tired == 1 ? 100.0f : tired == 2 ? 70.0f : 40.0f);   // only ever slower
+    if (tired >= 2) { f.brow = Brow::Sad; f.rbright *= 0.8f; }
+    if (tired >= 3) { f.mouth = Mouth::Small; f.gray = true; }
+  }
 }
 
 void brainUpdate(uint32_t now, const BrainCtx& ctx, FaceState& target, float& blinkOpen) {

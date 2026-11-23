@@ -123,7 +123,10 @@ static void analyse() {
   // background: drops to any quieter 2 s at once, creeps up ~2.4 dB a minute (road noise rising
   // with speed), but not while music is heard or it would learn the music as background
   if (s_lvl < s_floor) s_floor = s_lvl;
-  else if (!s_heard) s_floor += 0.02f;
+  // Loud with no music (the V8 idling at -22 dB, road noise -10..-25) pulls it up fast, 1 dB/s: at
+  // 2.4 dB/min a quiet moment at boot (-58) left everything in the car "6 dB louder", and idle rumble
+  // bobbed him (drive log, Nov 22 2026). Music starts the bob within ~2 s, so it costs ~2 dB.
+  else if (!s_heard) s_floor += s_lvl > s_floor + s_loudDb ? 0.5f : 0.02f;
   // Hysteresis: starting needs the full test, but once bobbing, looser limits keep it going through
   // quieter bars and road noise (in the car the bob dropped out on its own, Nov 19 2026: road
   // rumble sits right in the bass band the beat comes from).
@@ -157,7 +160,8 @@ void musicUpdate(uint32_t now) {
       if (s_heard) s_yes++;
       else if (s_yes && fabsf(s_est - s_candBpm) < s_candBpm * 0.08f) s_yes++;
       else { s_yes = 1; s_candBpm = s_est; }
-      if (s_yes >= 4) setHeard(true);
+      // not in the first 30 s after a wake: the background is still catching up with the engine
+      if (s_yes >= 4 && now > 30000) setHeard(true);
     }
     else { s_yes = 0; if (++s_no >= 16) setHeard(false); }          // 8 s without it (song gap ends it)
     // Staying on needs the tempo too: of the last 16 checks (8 s), at least 5 within 8 % of the bob's

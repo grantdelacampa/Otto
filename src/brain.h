@@ -31,6 +31,7 @@ struct BrainCtx {
   bool  hadDriven = false;
   bool  night = false;
   int   batPct = 70;
+  bool  charging = false;
   float tempC = 25;
   float calibProgress = 0;
   float lon = 0;                // current longitudinal g, for captions
