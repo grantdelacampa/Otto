@@ -312,6 +312,7 @@ static void onRelease(uint32_t now) {
     float dur = (float)(g.last - g.t0);
     if (dist < 14 * PX_PER_DESIGN && dur < 450) {
       if (menuIsOpen()) menuTap(g.x0, g.y0);
+      else if (motionEngineLearning()) motionEngineLearnTap();   // stop / skip a step
       else { reactTap(now); s_lastTapEnd = now; }
     } else if (dist < 14 * PX_PER_DESIGN) {
       Serial.printf("touch: not a tap - held %u ms\n", (unsigned)dur);   // too long for a tap, too short to pet

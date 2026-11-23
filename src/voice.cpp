@@ -9,19 +9,22 @@
 #include "trip.h"
 #include "board.h"
 #include "extras.h"
+#include "commands.h"
+#include "pwrtest.h"
+#include "wifitune.h"
 #include <ESP_SR.h>
 #include <esp_partition.h>
 
 void requestSleep();  // main.cpp
-bool isNight();       // main.cpp
 
 // Phonemes generated with the Arduino ESP_SR tool (needs `pip install g2p_en`):
 //   python gen_sr_commands.py "lets drag race,drag race,launch mode;open menu,show menu;..."
 // Same id = same action; several phrasings each.
 enum VoiceCmd {
   VC_DRAG_RACE, VC_MENU, VC_BRIGHTER, VC_DIMMER, VC_LOUDER, VC_QUIETER, VC_MUTE, VC_UNMUTE,
-  VC_BEST, VC_SUMMARY, VC_SLEEP, VC_TIME, VC_SHOW, VC_SHOW_OFF,
-  VC_VOLUME,              // VC_VOLUME + i = set the volume to kVolLevels[i]
+  VC_BEST, VC_SUMMARY, VC_SLEEP, VC_TIME, VC_SHOW, VC_SHOW_OFF, VC_CALIBRATE,
+  VC_LEARN_ROAD, VC_LEARN_ENGINE,
+  VC_VOLUME,             // VC_VOLUME + i = set the volume to kVolLevels[i]
   VC_BRIGHT = VC_VOLUME + 20,   // VC_BRIGHT + i = set the brightness to kBriLevels[i]
 };
 static const int kBriLevels[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
@@ -55,6 +58,15 @@ static const sr_cmd_t kCmds[] = {
   {VC_SHOW, "show mode", "sb MbD"},
   {VC_SHOW_OFF, "stop show", "STnP sb"},
   {VC_SHOW_OFF, "end show mode", "fND sb MbD"},
+  {VC_CALIBRATE, "recalibrate", "RmKaLcBRdT"},
+  {VC_CALIBRATE, "calibrate", "KaLcBRdT"},
+  {VC_CALIBRATE, "recalibrate mount", "RmKaLcBRdT MtNT"},
+  {VC_CALIBRATE, "level yourself", "LfVcL YkSfLF"},
+  // hand-encoded with the tool's alphabet (ER = k, DH = j, OW = b, NG = l, JH = q; "turn" = TkN)
+  {VC_LEARN_ROAD, "learn the road", "LkN jc RbD"},
+  {VC_LEARN_ROAD, "learn driving", "LkN DRiVgl"},
+  {VC_LEARN_ENGINE, "learn the engine", "LkN jc fNqcN"},
+  {VC_LEARN_ENGINE, "engine learn", "fNqcN LkN"},
   {VC_VOLUME + 0, "volume ten", "VnLYoM TfN"},
   {VC_VOLUME + 0, "volume ten percent", "VnLYoM TfN PkSfNT"},
   {VC_VOLUME + 1, "volume fifteen", "VnLYoM FgFTmN"},
@@ -131,6 +143,7 @@ static volatile int s_cmd = -1, s_phrase = -1;
 static int s_lastVol = 60;
 static int s_misses = 0;
 static uint32_t s_listenSince = 0;
+static uint32_t s_calAt = 0;           // "recalibrate": start a moment later, once the cabin is quiet
 // Ignore guesses the model is less sure of than this (bench, Nov 2026: "volume fifty" came back as
 // "volume up" at 0.06 sure). Change with `listen thresh 0.x`; not saved.
 static float s_thresh = 0.15f;
@@ -146,11 +159,38 @@ static void onSr(sr_event_t ev, int cmd, int phrase) {
   }
 }
 
+// ---- listening window (owner, Nov 19 2026: voice is ~1/6 of the savable draw) ----
+// "Hi ESP" listens for VOICE_WINDOW_MS after a wake, an engine start, a touch or the menu, and
+// after each use; then the recogniser naps until the next one. VOICE off = never.
+static const uint32_t VOICE_WINDOW_MS = 5 * 60 * 1000UL;
+static uint32_t s_windowUntil = 0;
+void voiceWake() { s_windowUntil = millis() + VOICE_WINDOW_MS; }
+void voiceNapNow() { s_windowUntil = millis(); }   // bench: `listen nap`
+
+// ---- mic reader while the recogniser naps ----
+// The music bob lives on the mic blocks (micRead -> musicFeed), and the recogniser's feed task is
+// normally the only reader. While it's off, this task reads instead. micRead isn't reentrant:
+// start() raises s_srStarting and waits for the task's current block before ESP-SR takes over.
+static volatile bool s_srStarting = false, s_micTaskBusy = false;
+static void micTask(void*) {
+  static int16_t buf[512];
+  for (;;) {
+    if (s_running || s_srStarting || !g_set.bobOn || !micOk()) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+    s_micTaskBusy = true;
+    if (s_running || s_srStarting) { s_micTaskBusy = false; continue; }   // lost the race: hand over
+    micRead(buf, 512);                                                    // ~32 ms, blocks on the DMA
+    s_micTaskBusy = false;
+  }
+}
+
 static bool start() {
   if (s_running) return true;
   if (!micOk() || !s_modelsOk) return false;
+  s_srStarting = true;
+  for (int i = 0; i < 40 && s_micTaskBusy; i++) delay(5);   // let the music reader finish its block
   ESP_SR.onEvent(onSr);
   s_running = ESP_SR.begin(s_stream, kCmds, N_CMDS, SR_CHANNELS_MONO, SR_MODE_WAKEWORD);
+  s_srStarting = false;
   Serial.printf("voice: %s\n", s_running ? "listening for \"Hi ESP\"" : "ESP-SR start failed");
   return s_running;
 }
@@ -176,8 +216,16 @@ bool voiceInit() {
   if (!p) { Serial.println("voice: no 'model' partition (see README: Voice commands)"); return false; }
   s_modelsOk = modelsLookValid(p);
   if (!s_modelsOk) { Serial.println("voice: 'model' partition is empty - flash srmodels.bin (README: Voice commands)"); return false; }
+  voiceWake();
   if (!g_set.voiceOn) return false;
   return start();
+}
+
+static void startMicTask() {
+  static bool s_started = false;
+  if (s_started || !micOk()) return;
+  s_started = true;
+  xTaskCreatePinnedToCore(micTask, "micbob", 3072, nullptr, 1, nullptr, 1);
 }
 
 void voiceSetEnabled(bool on) {
@@ -232,8 +280,8 @@ static void act(int cmd) {
       menuOpen();
       break;
     case VC_BRIGHTER: case VC_DIMMER: {
-      int* bri = isNight() ? &g_set.nightBri : &g_set.dayBri;
-      *bri = constrain(*bri + (cmd == VC_BRIGHTER ? 15 : -15), 10, 100);
+      int* bri = &g_set.dayBri;   // one brightness (Nov 22 2026)
+      *bri = constrain(*bri + (cmd == VC_BRIGHTER ? 15 : -15), 5, 100);
       settingsSave();
       snprintf(big, sizeof(big), "%d%%", *bri);
       show("BRIGHTNESS", big, "", 2000);
@@ -253,11 +301,11 @@ static void act(int cmd) {
       return;                                        // no chirp, obviously
     default:
       if (cmd >= VC_BRIGHT && cmd < VC_BRIGHT + (int)(sizeof(kBriLevels) / sizeof(int))) {
-        int* bri = isNight() ? &g_set.nightBri : &g_set.dayBri;   // "brightness fifty" etc.
+        int* bri = &g_set.dayBri;   // "brightness fifty" etc.
         *bri = kBriLevels[cmd - VC_BRIGHT];
         settingsSave();
         snprintf(big, sizeof(big), "%d%%", *bri);
-        show("BRIGHTNESS", big, isNight() ? "NIGHT" : "", 2000);
+        show("BRIGHTNESS", big, "", 2000);
         break;
       }
       if (cmd >= VC_VOLUME && cmd < VC_VOLUME + (int)(sizeof(kVolLevels) / sizeof(int))) {
@@ -290,6 +338,19 @@ static void act(int cmd) {
     case VC_SHOW_OFF:
       extrasShow(false);
       break;
+    case VC_CALIBRATE:                               // like the BOOT hold, after a short delay
+      // Not stopped(): a stale mount reads tilt as constant g, so he always looks "driving" exactly
+      // when he needs this. Calibration restarts itself while shaken; only a real speed blocks it.
+      if (g_speed.at && millis() - g_speed.at < 2000 && g_speed.mph > 2) { notNow(); return; }
+      s_calAt = millis() + 1500;
+      break;
+    case VC_LEARN_ROAD:                              // while cruising: hands-free, no stopped() check
+      motionStartRoadLearn();                        // (stoppedSecs counts up on a straight road)
+      break;
+    case VC_LEARN_ENGINE:                            // = menu ENGINE LEARN: parked, engine idling
+      if (g_speed.at && millis() - g_speed.at < 2000 && g_speed.mph > 2) { notNow(); return; }
+      motionStartEngineLearn();
+      break;
     case VC_SLEEP:
       audioChirp(900, 500, 200);
       requestSleep();
@@ -310,9 +371,22 @@ static void act(int cmd) {
 }
 
 void voiceUpdate(uint32_t now) {
-  // follow the VOICE setting (menu, tuning page, cfg)
-  static bool s_lastOn = g_set.voiceOn;
-  if (g_set.voiceOn != s_lastOn) { s_lastOn = g_set.voiceOn; voiceSetEnabled(s_lastOn); }
+  startMicTask();
+  // follow the VOICE setting (menu, tuning page, cfg) and the listening window. Acts only when
+  // "want" changes, so a recogniser that fails to start isn't retried every loop. Wi-Fi tuning
+  // owns voice while it runs (it pauses it); pwrtest drives voiceOn directly (window ignored).
+  static bool s_want = g_set.voiceOn;
+  bool window = (int32_t)(s_windowUntil - now) > 0 || pwrtestActive();
+  bool want = g_set.voiceOn && (window || s_listenSince);   // never nap in the middle of a command
+  if (want != s_want && !wifiTuneActive()) {
+    s_want = want;
+    if (want) start();
+    else if (s_running) {
+      ESP_SR.end(); s_running = false; brainVoice(Expr::Idle);
+      Serial.println(g_set.voiceOn ? "voice: napping (tap him to listen again)" : "voice: off");
+    }
+  }
+  if (s_calAt && (int32_t)(now - s_calAt) >= 0) { s_calAt = 0; motionStartCalibration(); }
   if (!s_running) return;
   int ev = s_event;
   if (ev < 0) {
@@ -320,6 +394,7 @@ void voiceUpdate(uint32_t now) {
     return;
   }
   s_event = -1;
+  voiceWake();                                        // any use keeps him listening
   if (ev == 0) {                                      // wake word
     Serial.println("voice: wake word");
     s_listenSince = now;

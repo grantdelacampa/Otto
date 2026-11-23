@@ -5,6 +5,7 @@
 #include "motion.h"
 #include "commands.h"
 #include <NimBLEDevice.h>
+#include "ble.h"
 #include <Preferences.h>
 
 ObdState g_obd;
@@ -437,11 +438,21 @@ void obdInit() {
   s_savedType = p.getUChar("obdType", 0);
   p.end();
   strlcpy(s_savedAddr, a.c_str(), sizeof(s_savedAddr));
+}
+
+// Once, before the first scan: the Bluetooth stack may start later than obdInit() (or not at all
+// when WIRELESS and OBD are both off), see ble.cpp.
+static bool scanSetup() {
+  static bool s_done = false;
+  if (!bleReady()) return false;
+  if (s_done) return true;
   NimBLEScan* sc = NimBLEDevice::getScan();
   sc->setAdvertisedDeviceCallbacks(&s_scanCb, false);
   sc->setActiveScan(true);
   sc->setInterval(100);
   sc->setWindow(50);
+  s_done = true;
+  return true;
 }
 
 void obdUpdate(uint32_t now) {
@@ -465,6 +476,7 @@ void obdUpdate(uint32_t now) {
     return;
   }
   if (!g_obd.adapter) {
+    if (!scanSetup()) return;
     if (s_found && !s_scanning) {
       s_found = false;
       if (bleConnect()) { g_obd.adapter = true; startInit(); }

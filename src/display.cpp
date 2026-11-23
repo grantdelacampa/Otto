@@ -92,6 +92,29 @@ bool displayInit() {
   return true;
 }
 
+// Send only part of the canvas (edges are multiples of 4, as the SPD2010 wants). Rows go through the
+// same two DMA bounce buffers, as many per transfer as fit.
+void displayPushRect(int x, int y, int w, int h) {
+  int x0 = max(0, x & ~3), x1 = min(LCD_W, (x + w + 3) & ~3);
+  int y0 = max(0, y & ~3), y1 = min(LCD_H, (y + h + 3) & ~3);
+  if (x1 <= x0 || y1 <= y0) return;
+  int bw = x1 - x0;
+  int per = max(4, ((LCD_W * STRIPE) / bw) & ~3);
+  const uint16_t* src = (const uint16_t*)canvas.getBuffer();
+  int b = 0;
+  for (int yy = y0; yy < y1; yy += per) {
+    int rows = min(per, y1 - yy);
+    xSemaphoreTake(s_done, portMAX_DELAY);
+    for (int r = 0; r < rows; r++) memcpy(s_bounce[b] + r * bw, src + (yy + r) * LCD_W + x0, bw * 2);
+    esp_lcd_panel_draw_bitmap(s_panel, x0, yy, x1, yy + rows, s_bounce[b]);
+    b ^= 1;
+  }
+  xSemaphoreTake(s_done, portMAX_DELAY);
+  xSemaphoreTake(s_done, portMAX_DELAY);
+  xSemaphoreGive(s_done);
+  xSemaphoreGive(s_done);
+}
+
 void displayPush() {
   // LovyanGFX stores 16-bit pixels byte-swapped (big-endian), which is what the panel expects.
   const uint16_t* src = (const uint16_t*)canvas.getBuffer();
@@ -119,7 +142,16 @@ void displayUpdateBacklight(float dt) {
   ledcWrite(PIN_LCD_BL, (uint32_t)(s_bl + 0.5f));
 }
 
+// Before deep sleep / power off. "Display off" alone left the SPD2010 running (its touch half kept
+// scanning: the INT heartbeat seen while asleep), so also send SLEEP IN; enterDeepSleep() then holds
+// both its reset lines low through the expander (Nov 20 2026, battery work). The driver has no
+// disp_sleep, so the command goes out the way its tx_param() sends them over QSPI (0x02 = write).
 void displayOff() {
   ledcWrite(PIN_LCD_BL, 0);
   if (s_panel) esp_lcd_panel_disp_on_off(s_panel, false);
+  if (s_io) {
+    delay(20);                                                  // let a last frame finish sending
+    esp_lcd_panel_io_tx_param(s_io, (0x02 << 24) | (0x10 << 8), nullptr, 0);   // SLPIN
+    delay(120);                                                 // the controller needs ~120 ms to enter sleep
+  }
 }

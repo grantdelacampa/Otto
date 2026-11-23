@@ -108,6 +108,7 @@ static void onOtaData() {
 
 void wifiTuneStart() {
   if (s_on) return;
+  if (!g_set.wirelessOn) { Serial.println("wifi: WIRELESS is off (menu)"); return; }
   // Voice off while tuning: the Wi-Fi stack shares core 0 with the speech engine's audio feed,
   // and both want the chip's internal RAM. It comes back on wifiTuneStop() if VOICE is on.
   s_voiceWas = voiceRunning();

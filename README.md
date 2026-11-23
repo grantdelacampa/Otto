@@ -73,7 +73,8 @@ Designed expressions (docs/design) and what triggers them:
 | SEHR GUT | 10 minutes of smooth driving (no hard braking, launches or bumps) | `sehrgut` |
 
 Every other Rotor screen (turns, bumps, dizzy, battery, holidays, drag tree, guard, cabin
-temperature, car show, …) is redrawn in Otto's style. Try any with `expr <name> [ms]`, or the
+temperature, car show, …) is redrawn in Otto's style (the cabin cards need a temperature sensor this
+board doesn't have, so they only show in the face tester). Try any with `expr <name> [ms]`, or the
 face tester on the tuning page.
 
 Greetings: Guten Morgen! · Guten Tag! · Guten Abend! · Willkommen! · Hallo! · Los geht's! ·
@@ -92,9 +93,10 @@ Halloween (jack-o'-lantern piston), Thanksgiving, Christmas.
 | Drag around the edge / flick | Turn the crank: the piston strokes with your finger, coasts when you let go; a hard flick ends dizzy |
 | Tap, then tap and hold 0.6 s | Config menu (only when stopped) |
 
-Menu: BRIGHTNESS, NIGHT BRIGHT, VOLUME, GREETINGS, REVS, V8 MODE, MUSIC BOB, BORED, YAWNS,
-HOLIDAYS, MOTION WAKE, BIRTHDAY, VOICE, PRO TREE, LAUNCH MODE, CAR SHOW, GUARD, RECALIBRATE,
-INFO, EXIT. Swipe up/down to scroll, tap to pick; it closes after 15 s untouched or when you
+Menu: BRIGHTNESS, VOLUME, GREETINGS, REVS, V8 MODE, MUSIC BOB, BORED, YAWNS,
+HOLIDAYS, MOTION WAKE, BIRTHDAY, VOICE, PRO TREE, LAUNCH MODE, CAR SHOW, GUARD, OBD ADAPTER,
+ENGINE CODES, WIRELESS, WI-FI TUNING, RECALIBRATE, ENGINE LEARN, DRIVE LOG, INFO, EXIT. **WIRELESS** off = no Bluetooth and
+no Wi-Fi tuning at all (turn it back on here to use the tuning page). Swipe up/down to scroll, tap to pick; it closes after 15 s untouched or when you
 drive off.
 
 | Button | Tap | Hold |
@@ -102,8 +104,46 @@ drive off.
 | BOOT | Boop | 2 s: recalibrate mount |
 | PWR  | Battery level | 3 s: power off (on battery) |
 
+**Parked over an hour:** Otto switches himself fully off (nothing drains the battery). Press **PWR** to
+turn him back on. Shorter stops still wake him by motion as before.
+
+**Voice naps to save battery:** "Hi ESP" listens for 5 minutes after he wakes, the engine starts,
+you touch him or open the menu, and after every command; then it naps. Tap him to wake it again. A
+small blue microphone at the lower left of the screen shows while he's listening. The music bob keeps
+working while voice naps (and with VOICE off).
+
+**Status icons** (lower left, 2 x 2): microphone = "Hi ESP" listening; Bluetooth = something connected
+(tuning page / update); Wi-Fi = Wi-Fi tuning on; yellow plug = OBD readings arriving.
+
+**ENGINE LEARN** (do it once, parked, no driving needed): start the engine and leave it idling
+in P, pick ENGINE LEARN in the menu. He measures the idle for 20 s, then asks you to turn the engine
+off and measures that for 10 s (tap to skip that step). He saves how your car vibrates at idle and
+with the engine off, so a smooth idle at a light no longer reads as "engine off", revs are judged
+against your real idle, and he can tell "stopped" from "cruising" better. Run it again any time
+(e.g. AC on vs off); serial `enginelearn` does the same with the steps printed. By voice: "Hi ESP" then
+"learn the engine".
+
+**Learn the road** (voice only, while driving): early in a drive, on a steady stretch, say "Hi ESP" then
+"learn the road" (or "learn driving"). He measures 20 s of normal cruising and puts the line between
+"stopped" and "cruising" halfway between your idle and that. Run ENGINE LEARN first (or after: the
+road numbers are kept and used once the idle is known). If he says "LOOKS STOPPED" he saw no more
+shake than at idle and saved nothing. Voice listens for 5 minutes after the engine starts, so do it
+early or tap him at a light first.
+
+**DRIVE LOG** (menu) records a diagnostics line every 2 s while he's moving (`drivelog` prints it).
+Leave it on while the driving faces are being tuned; it costs next to nothing.
+
+Recalibrating by voice also works when parked: "Hi ESP" then "recalibrate" (or "calibrate",
+"recalibrate mount", "level yourself").
+
 If touches land in the wrong place, type `touch`, tap the corners, and set
 `TOUCH_SWAP_XY` / `TOUCH_MIRROR_X` / `TOUCH_MIRROR_Y` in `src/config.h`.
+
+### ENGINE LEARN and learn the road also learn the car's noise
+With **music off** (and MUSIC BOB on in the menu), both learns also listen: ENGINE LEARN learns how
+loud the idle is and the V8's own rhythm, learn the road learns how loud cruising is. Otto then
+won't bob to the engine or road noise, and music only counts when it's louder than the car.
+Learned with music on by mistake? Just run it again. Per car, like the rest of the learns.
 
 ## 6. Tuning page
 
@@ -116,6 +156,10 @@ after 10 minutes without the page. Firmware updates work here too, much faster t
 
 **From a computer, over Bluetooth:**
 
+Otto advertises quickly for 30 s after he wakes, after the page disconnects, or after you open
+the menu, and slowly the rest of the time, so the page may take a few seconds longer to find him
+outside those windows. The menu's WIRELESS switch turns Bluetooth off completely.
+
 `tools/tuning.html`, over Web Bluetooth (Chrome / Edge). Browsers only allow Bluetooth on
 localhost or https:
 
@@ -127,6 +171,20 @@ python -m http.server 8000
 Open http://localhost:8000/tuning.html and press CONNECT (device name `OTTO`). It uses its own
 Bluetooth service UUIDs (`…-4f54544f0000`), so it never connects to Rotor and Rotor's page
 never connects to Otto.
+
+### Phone clock (iPhone)
+Otto's clock chip has no backup battery, so a power-off (flat cell, or the 1 h auto-off) loses the
+time. Pair your phone once and Otto reads its clock and time zone every time it connects:
+
+1. Wake Otto with **WIRELESS** on (he advertises quickly for 30 s after a wake or opening the menu).
+2. iPhone: **Settings > Bluetooth**, tap **OTTO** under Other Devices, then **Pair**.
+
+To iOS he looks like a small media remote (that's what gets him listed); he never presses anything.
+
+After that the phone reconnects to him by itself when he's awake and nearby. Otto is not a speaker
+or headset (the chip only has Bluetooth Low Energy, which carries no audio). A connected phone does
+**not** keep him awake; only the tuning page does. Serial `phone` shows the last result;
+`phone forget` drops the pairing on Otto's side (also Forget This Device on the phone).
 
 ## 7. Serial console
 
@@ -152,6 +210,9 @@ Same commands over USB and Bluetooth. `help` lists them:
 | `awake`, `sleeplog`, `womcheck [reset]` | what keeps Otto awake / his last motion checks while asleep / the sleep motion check on the bench |
 | `i2cscan` | devices on the I2C bus (expect 0x20, 0x51, 0x53, 0x6B) |
 | `batlog`, `batfake <V>\|off` | battery log (wake entries say what woke him: wake-boot, wake-pwr, wake-peek) / pretend battery voltage |
+| `enginelearn [road\|tap]` | = menu ENGINE LEARN; `road` = voice "learn the road"; `tap` stops / skips a step |
+| `drivelog`, `drivelog clear` | drive diagnostics (a line every 2 s while moving: vibration, road, stopped / engine state, face, music) |
+| `pwrtest start [secs]`, `pwrtest` | bench power test: unplug USB, he steps through settings for ~4 min and restarts; `pwrtest` prints the results |
 | `show on\|off`, `extras [guard\|hot\|cold\|missed\|milestone\|break\|patent]` | car show mode / extras demos |
 | `play <clip>` | play a voice clip, e.g. `play morgen` |
 | `holidays [on\|off]`, `birthday M D` / `birthday clear` | holidays + birthday |

@@ -1,4 +1,5 @@
 #include "trip.h"
+#include "drivelog.h"
 #include "brain.h"
 #include "motion.h"
 #include "commands.h"
@@ -61,6 +62,7 @@ bool tripShowSummary() {
   else snprintf(sub, sizeof(sub), "%.1fG TURN - %.1fG BRAKE", s.maxLat, s.maxBrake);
   brainSetAnswer(label, big, sub);
   brainEvent(Expr::Summary, 7000);
+  drivelogEvent("summary");
   tripReset();
   extrasDriveDone();                     // drive count + milestones
   return true;

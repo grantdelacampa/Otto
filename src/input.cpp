@@ -39,6 +39,11 @@ static void pwrHold()  { Serial.println("button: PWR hold -> power off"); reques
 
 void inputUpdate(uint32_t now) {
   handle(s_boot, boardBootPressed(), now, 2000, bootTap, bootHold);
-  handle(s_pwr, boardPwrPressed(), now, 3000, pwrTap, pwrHold);
+  // PWR is also how Otto gets switched on / woken: a press still held from that must not count
+  // toward the 3 s power-off hold (it powered him straight back off). Arm only after a release.
+  static bool pwrArmed = false;
+  bool pwr = boardPwrPressed();
+  if (!pwrArmed) { if (!pwr) pwrArmed = true; }
+  else handle(s_pwr, pwr, now, 3000, pwrTap, pwrHold);
   if (s_calAt && (int32_t)(now - s_calAt) >= 0 && !s_boot.down) { s_calAt = 0; motionStartCalibration(); }
 }

@@ -2,6 +2,7 @@
 #include "settings.h"
 #include "audio.h"
 #include "ble.h"
+#include "motion.h"
 #include <math.h>
 
 // ---- feed (runs on whichever task reads the mic: the ESP-SR feed task) ----
@@ -34,12 +35,17 @@ void musicFeed(const int16_t* s, size_t n) {
 }
 
 // ---- analysis (main loop, twice a second) ----
-// Tunable on the bench with `music loud -55` / `music beat 0.2` (not saved).
+// Tunable on the bench with `music loud 6` / `music beat 0.2` / `music min -52` (not saved).
 // Loud = the last 2 s are this far above the background (learned: the quietest it's been lately).
 // Bench, Nov 2026: quiet room -60.5 dB, phone music at 30 cm -51.5, talking -36..-48 but gappy.
 static float s_loudDb = 6;        // dB above the background
 static float s_steadyMin = 0.85f; // share of the last 4 s that isn't a gap (speech has gaps, music doesn't)
 static float s_beatMin = 0.20f;   // autocorrelation peak of the bass kicks at the beat period
+// Absolute floor (dBFS): a silent office read -55.8 dB with a faint ~157 BPM tick (fan / hum) and the
+// background learned at -61.7, so it passed "+6 dB" and the looser keep limits held the bob on with
+// no music at all (owner, Nov 22 2026). Starting needs > s_minDb, staying > s_minDb - 3. Phone music
+// at 30 cm read -51.5 on the bench; car speakers should be far louder (check `drivelog` lvl).
+static float s_minDb = -52;
 static const int LAG_MIN = 9, LAG_MAX = 34;   // beat strength: any period from 208 .. 55 BPM
 // Tempo for the bob: only 82-170 BPM. Bench: a 118 BPM song's kick lands every other beat and read
 // as 59 BPM when any period was allowed.
@@ -48,6 +54,24 @@ static float s_floor = -62;       // background level (dBFS); starts as a quiet 
                                   // playing at power-up still counts (bench: it was)
 
 static bool s_heard = false;
+static bool s_live = false;       // analysis running on fresh mic data
+
+// The car's own noise, learned by ENGINE LEARN (idle) / learn the road (cruising), with music off.
+// While the engine runs, the background never sits below it: no 30 s catch-up after a wake, and a
+// quiet moment can't make the car look loud. -999 = nothing learned (or engine off).
+static bool engineIdling() { return g_motion.engineOn && g_motion.quietSecs > 1; }
+static float learnedNoise() {
+  if (!g_motion.engineOn) return -999;
+  float idle = g_set.idleNoiseDb < 0 ? g_set.idleNoiseDb : -999;
+  float cruise = g_set.cruiseNoiseDb < 0 ? g_set.cruiseNoiseDb : -999;
+  return engineIdling() ? idle : fmaxf(idle, cruise);
+}
+// The V8's idle rhythm reads as a beat: at idle, a tempo near the learned one (or half / double) isn't music.
+static bool engineTempo(float bpm) {
+  if (!engineIdling() || g_set.idleBpm <= 0) return false;
+  for (float m : {1.0f, 2.0f, 0.5f}) if (fabsf(bpm - g_set.idleBpm * m) < g_set.idleBpm * m * 0.06f) return true;
+  return false;
+}
 static float s_bpm = 120, s_bpmShown = 120;
 static int s_yes = 0, s_no = 0;
 static uint32_t s_lastRun = 0, s_lastFrames = 0, s_audioAt = 0, s_watchUntil = 0;
@@ -55,6 +79,7 @@ static float s_lvl = -99, s_steady = 0, s_beat = 0, s_est = 0;
 static bool s_cand = false;
 
 bool musicHeard() { return s_heard; }
+void musicDebug(float& lvl, float& floor, float& beat) { lvl = s_lvl; floor = s_floor; beat = s_beat; }
 float musicBpm() { return s_bpmShown; }
 
 static float pctile(float* v, int n, float p) {     // sorts v in place
@@ -117,8 +142,17 @@ static void analyse() {
   // background: drops to any quieter 2 s at once, creeps up ~2.4 dB a minute (road noise rising
   // with speed), but not while music is heard or it would learn the music as background
   if (s_lvl < s_floor) s_floor = s_lvl;
-  else if (!s_heard) s_floor += 0.02f;
-  s_cand = s_lvl > s_floor + s_loudDb && s_steady >= s_steadyMin && s_beat >= s_beatMin;
+  // Loud with no music (the V8 idling at -22 dB, road noise -10..-25) pulls it up fast, 1 dB/s: at
+  // 2.4 dB/min a quiet moment at boot (-58) left everything in the car "6 dB louder", and idle rumble
+  // bobbed him (drive log, Nov 22 2026). Music starts the bob within ~2 s, so it costs ~2 dB.
+  else if (!s_heard) s_floor += s_lvl > s_floor + s_loudDb ? 0.5f : 0.02f;
+  float car = learnedNoise();
+  if (s_floor < car) s_floor = car;
+  // Hysteresis: starting needs the full test, but once bobbing, looser limits keep it going through
+  // quieter bars and road noise (in the car the bob dropped out on its own, Nov 19 2026: road
+  // rumble sits right in the bass band the beat comes from).
+  if (s_heard) s_cand = s_lvl > s_floor + s_loudDb * 0.5f && s_lvl > s_minDb - 3 && s_steady >= s_steadyMin - 0.15f && s_beat >= s_beatMin * 0.6f;
+  else s_cand = s_lvl > s_floor + s_loudDb && s_lvl > s_minDb && !engineTempo(s_est) && s_steady >= s_steadyMin && s_beat >= s_beatMin;
 }
 
 void musicUpdate(uint32_t now) {
@@ -128,7 +162,8 @@ void musicUpdate(uint32_t now) {
   uint32_t f = s_frames;
   bool fresh = f != s_lastFrames;
   s_lastFrames = f;
-  if (!g_set.bobOn || !fresh || f < (uint32_t)N) {   // off, or mic not read
+  s_live = g_set.bobOn && fresh && f >= (uint32_t)N;
+  if (!s_live) {                                      // off, or mic not read
     s_yes = s_no = 0;
     setHeard(false);
     return;
@@ -137,8 +172,36 @@ void musicUpdate(uint32_t now) {
   // Otto's own speaker is in the window: hold the current state rather than judge it
   bool selfNoise = s_audioAt && now - s_audioAt < (uint32_t)(N / FPS * 1000);
   if (!selfNoise) {
-    if (s_cand) { s_no = 0; if (++s_yes >= 3) setHeard(true); }      // ~1.5 s more on top of the window
-    else { s_yes = 0; if (++s_no >= 6) setHeard(false); }           // 3 s without it
+    // Starting also needs a steady tempo: 4 checks in a row (~2 s) within 8 % of each other. Room
+    // noise passes "steady" easily and a faint ~174 BPM tick sat just under the beat limit, so a TV /
+    // talking / a fan pushing the level up gave false bobbing; noise's tempo jumps around (99, 104,
+    // 94, 173 ... BPM), music's doesn't (owner, Nov 21 2026).
+    static float s_candBpm = 0;
+    if (s_cand) {
+      s_no = 0;
+      if (s_heard) s_yes++;
+      else if (s_yes && fabsf(s_est - s_candBpm) < s_candBpm * 0.08f) s_yes++;
+      else { s_yes = 1; s_candBpm = s_est; }
+      // not in the first 30 s after a wake: the background is still catching up with the engine
+      if (s_yes >= 4 && (now > 30000 || learnedNoise() > -999)) setHeard(true);   // learned: no wait
+    }
+    else { s_yes = 0; if (++s_no >= 16) setHeard(false); }          // 8 s without it (song gap ends it)
+    // Staying on needs the tempo too: of the last 16 checks (8 s), at least 5 within 8 % of the bob's
+    // tempo (or half / double it). An office with a fan / PC / typing passed the loose keep limits
+    // forever while its tempo hopped 81 -> 105 -> 118 -> 134 -> 157 BPM (owner, Nov 22 2026).
+    static uint16_t s_onTempo = 0;                                   // one bit per check, newest = bit 0
+    static uint8_t s_tempoN = 0;
+    if (!s_heard) { s_onTempo = 0; s_tempoN = 0; }
+    else {
+      auto near = [](float a, float b) { return fabsf(a - b) < b * 0.08f; };
+      bool on = s_cand && (near(s_est, s_bpm) || near(s_est, s_bpm * 2) || near(s_est, s_bpm * 0.5f));
+      s_onTempo = (uint16_t)((s_onTempo << 1) | (on ? 1 : 0));
+      if (s_tempoN < 16) s_tempoN++;
+      if (s_tempoN >= 16 && __builtin_popcount(s_onTempo) < 5) {
+        setHeard(false);
+        Serial.println("music: tempo wandered, stopped");
+      }
+    }
     if (s_heard && s_cand) {                                         // follow the tempo, slowly
       if (fabsf(s_est - s_bpm) < s_bpm * 0.15f) s_bpm += (s_est - s_bpm) * 0.3f;
       // only move the bob's tempo on a real change: a jump in BPM jumps the bob's phase
@@ -151,9 +214,12 @@ void musicUpdate(uint32_t now) {
                   s_heard ? "  [BOBBING]" : "");
 }
 
+bool musicLive() { return s_live; }
+void musicSample(float& lvl, float& beat, float& bpm) { lvl = s_lvl; beat = s_beat; bpm = s_est; }
+
 void musicStatus(char* b, size_t n) {
-  snprintf(b, n, "music: %s (%.0f BPM); level %.1f dB (background %.1f, needs +%.0f), steady %.2f (min %.2f), beat %.2f (min %.2f), est %.0f BPM%s",
-           s_heard ? "HEARD" : "not heard", s_bpmShown, s_lvl, s_floor, s_loudDb, s_steady, s_steadyMin, s_beat, s_beatMin, s_est,
+  snprintf(b, n, "music: %s (%.0f BPM); level %.1f dB (background %.1f, needs +%.0f and > %.0f), steady %.2f (min %.2f), beat %.2f (min %.2f), est %.0f BPM%s",
+           s_heard ? "HEARD" : "not heard", s_bpmShown, s_lvl, s_floor, s_loudDb, s_minDb, s_steady, s_steadyMin, s_beat, s_beatMin, s_est,
            g_set.bobOn ? "" : "; MUSIC BOB is off");
 }
 
@@ -166,4 +232,5 @@ void musicSetThresholds(const char* what, float v) {
   if (!strcasecmp(what, "loud")) s_loudDb = v;
   else if (!strcasecmp(what, "beat")) s_beatMin = v;
   else if (!strcasecmp(what, "steady")) s_steadyMin = v;
+  else if (!strcasecmp(what, "min")) s_minDb = v;
 }

@@ -11,3 +11,5 @@ bool voiceRunning();
 void voiceListenNow();          // skip the wake word: listen for a command now (push-to-talk / "voice listen")
 void voiceStatus(char* buf, size_t n);
 void voiceSetThreshold(float t); // command threshold 0..0.99 (0 = model default); not saved
+void voiceWake();               // open the listening window (wake, engine start, touch, menu): 5 min
+void voiceNapNow();             // bench (`listen nap`): close the window now

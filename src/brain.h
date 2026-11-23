@@ -17,6 +17,7 @@ enum class Expr : uint8_t {
   Guard, MissedYou, Milestone, BreakTime, HotCabin, ColdCabin, ShowCard, HolidayPatent,
   WarmUp, Warm, EngineHot, CheckEngine,   // OBD-II (obd.cpp)
   WifiTune,                               // Wi-Fi tuning mode: how to join (wifitune.cpp)
+  EngineLearn,                            // ENGINE LEARN card + progress ring (motion.cpp)
   COUNT
 };
 
@@ -30,6 +31,7 @@ struct BrainCtx {
   bool  hadDriven = false;
   bool  night = false;
   int   batPct = 70;
+  bool  charging = false;
   float tempC = 25;
   float calibProgress = 0;
   float lon = 0;                // current longitudinal g, for captions

@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include "config.h"
 #include "ble.h"
+#include <NimBLEDevice.h>
 #include "brain.h"
 #include "board.h"
 #include "motion.h"
@@ -22,6 +23,8 @@
 #include "music.h"
 #include "obd.h"
 #include "wifitune.h"
+#include "pwrtest.h"
+#include "drivelog.h"
 
 SpeedInput g_speed;
 void requestSleep();  // main.cpp
@@ -53,6 +56,19 @@ static bool cardDemo(Expr e, uint32_t ms) {
     case Expr::LaunchReady:  brainSetCaption("0-60 ARMED"); break;
     case Expr::CheckEngine:  brainSetAnswer("CHECK ENGINE", "P0171", "CODE 1 OF 2 - LAMP ON"); break;
     case Expr::WifiTune:     brainSetAnswer("WI-FI OTTO-430C", "otto1a2b", "THEN OPEN 192.168.4.1"); break;
+    // faces whose words come from the code that triggers them: without these `expr` showed
+    // whatever text the last card left behind ("LET'S GO" on the break card, bench Nov 15 2026)
+    case Expr::LaunchTree:   brainSetCaption("TREE .500"); break;
+    case Expr::LaunchGo:     brainSetGreeting("Los geht's!", "LET'S GO", Eye::Chevron); break;
+    case Expr::LaunchRed:    brainSetCaption("RED LIGHT!"); break;
+    case Expr::LaunchRecord: brainSetGreeting("Neuer Rekord!", "NEW RECORD", Eye::Happy); brainSetCaption("0-60 5.8 S"); break;
+    case Expr::Guard:        brainSetAnswer("SOMEONE BUMPED ME", "3:42 PM", "2 BUMPS"); break;
+    case Expr::MissedYou:    brainSetGreeting("Lange nicht gesehen!", "LONG TIME NO SEE", Eye::Happy); brainSetCaption("8 DAYS"); break;
+    case Expr::Milestone:    brainSetAnswer("WE MADE IT", "100", "DRIVES TOGETHER"); break;
+    case Expr::BreakTime:    brainSetGreeting("Pause?", "TIME FOR A BREAK?", Eye::Content); brainSetCaption("2 H 10 MIN"); break;
+    case Expr::HotCabin:     brainSetGreeting("Heiß!", "54 C INSIDE", Eye::Half); brainSetCaption("AIR IT OUT"); break;
+    case Expr::ColdCabin:    brainSetGreeting("Kalt!", "2 C INSIDE", Eye::Dot); brainSetCaption("BRRR!"); break;
+    case Expr::ShowCard:     brainSetAnswer(g_set.showL1, g_set.showL2, "TAP ME!"); break;
     default: return false;
   }
   brainEventPrio(e, ms, 120);
@@ -164,6 +180,18 @@ void handleCommand(const char* raw, uint16_t src) {
     snprintf(b, sizeof(b), "perf: %u frames, draw %.1f ms, push %.1f ms per frame", (unsigned)g_perfFrames,
              g_perfFrames ? g_perfDrawUs / 1000.0f / g_perfFrames : 0.0f, g_perfFrames ? g_perfPushUs / 1000.0f / g_perfFrames : 0.0f);
     reply(src, b);
+    extern uint32_t g_perfPart[5];
+    if (g_perfFrames) {
+      float k = 1.0f / 1000.0f / g_perfFrames;
+      snprintf(b, sizeof(b), "perf: draw parts - clear %.1f, cylinder %.1f, piston+mouth %.1f, brows+eyes %.1f, overlays %.1f ms",
+               g_perfPart[0] * k, g_perfPart[1] * k, g_perfPart[2] * k, g_perfPart[3] * k, g_perfPart[4] * k);
+      reply(src, b);
+    }
+    extern uint32_t g_pcRedraws;
+    extern uint32_t g_pcWhy[6]; snprintf(b, sizeof(b), "perf: piston cache redrawn %u times (lean %u, size %u, scale %u, hue %u, glow strength %u, glow %u)", (unsigned)g_pcRedraws, (unsigned)g_pcWhy[0], (unsigned)g_pcWhy[1], (unsigned)g_pcWhy[2], (unsigned)g_pcWhy[3], (unsigned)g_pcWhy[4], (unsigned)g_pcWhy[5]); memset(g_pcWhy, 0, sizeof(g_pcWhy));
+    reply(src, b);
+    g_pcRedraws = 0;
+    memset(g_perfPart, 0, sizeof(g_perfPart));
     g_perfFrames = g_perfDrawUs = g_perfPushUs = 0;
     g_perfLoops = g_perfLoopMaxUs = g_tpReads = g_tpReadUs = g_tpReadMaxUs = g_tpGapMaxMs = 0;
     s_since = now;
@@ -283,11 +311,12 @@ void handleCommand(const char* raw, uint16_t src) {
       delay(50);
     }
     motionInit();                                // back to normal mode
-  } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|thresh 0.x]  (bare = status)
+  } else if ((a = arg(line, "listen"))) {        // voice commands: listen [on|off|now|nap|thresh 0.x]  (bare = status)
     char b[160];
     if (!strcasecmp(a, "on") || !strcasecmp(a, "off")) {
       g_set.voiceOn = !strcasecmp(a, "on"); settingsSave(); voiceSetEnabled(g_set.voiceOn);
     } else if (!strcasecmp(a, "now")) voiceListenNow();
+    else if (!strcasecmp(a, "nap")) voiceNapNow();
     else if (!strncasecmp(a, "thresh", 6)) voiceSetThreshold(atof(a + 6));
     voiceStatus(b, sizeof(b));
     reply(src, b);
@@ -302,6 +331,38 @@ void handleCommand(const char* raw, uint16_t src) {
     float v = atof(a);
     powerFake(v >= 2.5f && v <= 4.5f ? v : 0);
     reply(src, v >= 2.5f && v <= 4.5f ? "battery reading faked" : "battery reading real");
+  } else if ((a = arg(line, "pwrtest"))) {       // bench power test on battery: pwrtest start [secs] | stop
+    if (!strncasecmp(a, "start", 5)) { int d = atoi(a + 5); pwrtestStart((d > 0 ? d : 30) * 1000UL); reply(src, "pwrtest: unplug USB; results after the restart (pwrtest)"); }
+    else if (!strcasecmp(a, "stop")) pwrtestStop();
+    else pwrtestReport(src, reply);
+  } else if ((a = arg(line, "phone"))) {         // phone clock: last result; "phone forget" = drop all pairings
+    if (!strcasecmp(a, "forget") && bleReady()) { NimBLEDevice::deleteAllBonds(); reply(src, "phone: pairings forgotten (also Forget OTTO on the phone)"); }
+    else {
+      extern int bleAdvRc(int);
+      char b[120];
+      snprintf(b, sizeof(b), "%s; ble %s, advertising %s (rc %d/%d)", blePhoneStatus(), bleReady() ? "on" : "off",
+               bleAdvertising() ? "yes" : "no", bleReady() ? bleAdvRc(0) : 0, bleReady() ? bleAdvRc(1) : 0);
+      reply(src, b);
+    }
+  } else if ((a = arg(line, "autooff"))) {        // bench: autooff <secs> = power off after this long asleep (once)
+    extern void setAutoOffTest(uint32_t);
+    int secs = atoi(a);
+    setAutoOffTest(secs > 0 ? secs : 0);
+    char b[80];
+    snprintf(b, sizeof(b), "autooff: %d s asleep (normal: 3600); unplug USB, it can't power off on USB", secs > 0 ? secs : 3600);
+    reply(src, b);
+  } else if ((a = arg(line, "womint"))) {        // bench: does the IMU knock alarm reach GPIO0 (wake pin)?
+    static uint16_t s_src; s_src = src;
+    int secs = atoi(a);
+    motionWomIntTest(secs > 0 ? secs : 15, [](const char* m) { reply(s_src, m); });
+  } else if ((a = arg(line, "enginelearn"))) {   // = menu ENGINE LEARN; "road" = voice "learn the road"; "tap" = a tap (stop / skip)
+    if (!strcasecmp(a, "tap")) motionEngineLearnTap();
+    else if (!strcasecmp(a, "road")) motionStartRoadLearn();       // = voice "learn the road"
+    else motionStartEngineLearn();
+    reply(src, motionEngineLearning() ? "engine learn: running (serial shows each step)" : "engine learn: not running");
+  } else if ((a = arg(line, "drivelog"))) {      // drive diagnostics: drivelog | drivelog clear
+    if (!strcasecmp(a, "clear")) { drivelogClear(); reply(src, "drivelog cleared"); }
+    else drivelogDump(src, reply);
   } else if ((a = arg(line, "batlog"))) {        // battery log: batlog [mAh] | batlog clear
     if (!strcasecmp(a, "clear")) { powerLogClear(); reply(src, "batlog cleared"); }
     else powerLogDump(src, reply, atof(a));
@@ -379,7 +440,7 @@ void handleCommand(const char* raw, uint16_t src) {
     audioChirp(900, 1500, 120);
   } else if (arg(line, "help")) {
     reply(src, "hello voice expr obd wifi mem perf reboot speed launch summary volume answer "
-               "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
+               "confused time clock imulp wom i2cscan vibcap mic music listen batlog batfake pwrtest drivelog enginelearn autooff show extras play calibrate flipfwd greet log resetpeaks get cfg reset stat touch "
                "sleep boop birthday holidays");
   } else {
     reply(src, "unknown command");

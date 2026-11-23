@@ -32,6 +32,8 @@
 #include "holidays.h"
 #include "obd.h"
 #include "wifitune.h"
+#include "pwrtest.h"
+#include "drivelog.h"
 
 // Survive deep sleep
 RTC_DATA_ATTR static float s_sleepRef[3] = {0, 0, 0};
@@ -49,9 +51,12 @@ RTC_DATA_ATTR static bool s_hotSleep = false;     // sleeping because it got too
 RTC_DATA_ATTR static bool s_wokeByVib = false;    // woken by engine vibration
 RTC_DATA_ATTR static bool s_womArmed = false;     // the IMU's wake-on-motion watched this sleep
 RTC_DATA_ATTR static uint8_t s_womQuiet = 0;      // peeks skipped since the last full look
+static const uint32_t IDLE_FRAME_MS = 83;          // calm faces: 12 fps (see frame())
 static const uint8_t WOM_MG = 30;                 // bench: 30 mg caught 4 of 4 light table knocks, 60 mg 2 of 4
 // Sleep-peek diagnostics, printed on the next full wake ("sleep: ..." line)
 RTC_DATA_ATTR static uint32_t s_peeks = 0;
+RTC_DATA_ATTR static uint16_t s_peekMv = 0;   // battery at the last full peek (the cell, even if USB went in later)
+RTC_DATA_ATTR static uint32_t s_sleptSecs = 0; // asleep this long (sum of the peek timers) since the last full wake
 RTC_DATA_ATTR static float s_peekD = 0, s_peekSd = 0;
 RTC_DATA_ATTR static int s_peekGot = -1;
 RTC_DATA_ATTR static float s_peekMean[3] = {0, 0, 0};
@@ -90,6 +95,7 @@ static void averageAccel(float out[3], int n) {
 static void enterDeepSleep(uint32_t timerSecs) {
   uint64_t mask = (1ULL << PIN_BTN_BOOT) | (1ULL << PIN_BTN_PWR);
   touchPrepareSleep();
+  boardHoldResetsForSleep();      // the SPD2010 (display + touch) stays in reset until the next full boot
   // No touch wake on this board: the SPD2010 pulses INT on its own while idle (every ~0.5 s when
   // read, every ~0.16 s when not, status 00 18 = nothing there), so it woke Otto ~1 s after every
   // sleep (bench, Nov 15 2026). Buttons + motion (peeks / wake-on-motion) wake him instead.
@@ -99,19 +105,52 @@ static void enterDeepSleep(uint32_t timerSecs) {
   rtc_gpio_pullup_en((gpio_num_t)PIN_BTN_PWR);
   esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
   if (timerSecs) esp_sleep_enable_timer_wakeup((uint64_t)timerSecs * 1000000ULL);
+  s_sleptSecs += timerSecs;
   Serial.flush();
   esp_deep_sleep_start();
 }
 
 // Back to sleep from a peek (or at the end of goToSleep): with motion wake on, the IMU's
 // wake-on-motion watches until the next peek, so a knock between peeks isn't missed.
+// Each peek is a full chip start-up (+ PSRAM self-test), and at every 4 s that was most of the
+// overnight drain (bench, Nov 20 2026: ~15 mA asleep, 82 -> 44 % in 9.4 h). So: every 4 s for the
+// first 15 minutes parked (quick stops feel the same), then every 15 s. The IMU's wake-on-motion
+// flag latches between peeks, so a door opening still counts at the next one.
+static uint32_t peekSecs() { return s_peeks < 225 ? 4 : 15; }   // 225 x 4 s = 15 min
+
 static void peekSleep() {
   s_womArmed = g_set.motionWake && motionArmWom(WOM_MG);
-  enterDeepSleep(g_set.motionWake ? 4 : 0);
+  enterDeepSleep(g_set.motionWake ? peekSecs() : 0);
+}
+
+// Engine vibration that wakes him from a sleep peek. A learned smooth idle can put engineVib low,
+// near the parked board's own reading: keep the peek clear of that so he doesn't wake on nothing.
+static float peekVibLimit() { return fmaxf(fmaxf(g_set.engineVib * 0.7f, g_set.engOffVib * 2.5f), 0.003f); }
+
+// Parked this long without a wake: power fully off (PWR_HOLD low cuts the battery; nothing drains).
+// Asleep, Otto still drew ~10 mA (the always-on speaker amp + display panel; bench Nov 21 2026),
+// ~20 % of the 500 mAh cell per night. Owner, Nov 21 2026: off after 1 h; PWR turns him back on.
+// On USB power the board can't switch itself off, so it just keeps sleeping.
+static const uint32_t AUTO_OFF_SECS = 3600;
+RTC_DATA_ATTR static uint32_t s_autoOffTest = 0;   // bench `autooff <secs>`: a shorter limit until the next power-off
+void setAutoOffTest(uint32_t secs) { s_autoOffTest = secs; }
+static void autoPowerOff() {
+  if (LittleFS.begin(false)) {                   // note it in the battery log (named wake-* so batlog's
+    rtcInit();                                   // sleep drain ends at this real cell reading)
+    float v = 0;
+    for (int i = 0; i < 8; i++) v += boardBatteryVolts();
+    powerLogAt("wake-off", (int)(v / 8 * 1000 + 0.5f));
+  }
+  Serial.println("sleep: parked 1 h - powering off");
+  Serial.flush();
+  boardPowerOff();
+  delay(500);
+  s_sleptSecs = 0;                               // still here: on USB power
 }
 
 // Woken by the timer: decide quickly whether to boot or go back to sleep.
 static void quickWakeCheck() {
+  if (!s_hotSleep && s_sleptSecs >= (s_autoOffTest ? s_autoOffTest : AUTO_OFF_SECS)) autoPowerOff();
   if (!motionProbeOnly()) return;  // can't tell: do a full boot
 
   if (s_hotSleep) {                // cooling off: only wake once it's well below the limit
@@ -128,7 +167,7 @@ static void quickWakeCheck() {
   if (s_womArmed) {
     fired = motionWomFired();
     bool buttons0 = boardBootPressed() || boardPwrPressed();
-    if (!fired && !buttons0 && ++s_womQuiet < 15) { s_peeks++; enterDeepSleep(4); }
+    if (!fired && !buttons0 && ++s_womQuiet < 15) { s_peeks++; enterDeepSleep(peekSecs()); }
     s_womQuiet = 0;
     motionLeaveWom();               // readings again (a soft reset: reconfiguring alone left them frozen)
     delay(120);                     // junk for ~100 ms after a mode switch
@@ -154,9 +193,12 @@ static void quickWakeCheck() {
   float d = 0;
   for (int k = 0; k < 3; k++) d = fmaxf(d, fabsf(sum[k] / got - s_sleepRef[k]));
   s_peeks++; s_peekD = d; s_peekSd = sd; s_peekGot = got;
+  // On USB the ADC shows the charger: only a reading below the charger's ~4.13 V is the cell's own
+  { float v = 0; for (int i = 0; i < 8; i++) v += boardBatteryVolts(); v /= 8;
+    if (v < 4.11f || !s_peekMv) s_peekMv = (uint16_t)(v * 1000 + 0.5f); }
   for (int k = 0; k < 3; k++) s_peekMean[k] = sum[k] / got;
 
-  bool vib = sd > g_set.engineVib * 0.7f;
+  bool vib = sd > peekVibLimit();
   bool buttons = boardBootPressed() || boardPwrPressed();
   PeekRec& pr = s_peekLog[s_peekLogN++ % 8];
   pr.n = s_peeks; pr.d = d; pr.sd = sd; pr.fired = fired; pr.woke = !(d < 0.035f && !vib && !buttons);
@@ -201,7 +243,7 @@ void sleepLogPrint(void (*out)(const char*)) {   // commands.cpp: `sleeplog`
   char b[120];
   int n = s_peekLogN < 8 ? s_peekLogN : 8;
   snprintf(b, sizeof(b), "sleeplog: last %d full motion checks; wake needs moved >= 0.035 g or vib > %.4f g",
-           n, g_set.engineVib * 0.7f);
+           n, peekVibLimit());
   out(b);
   for (int i = 0; i < n; i++) {
     const PeekRec& r = s_peekLog[(s_peekLogN - n + i) % 8];
@@ -225,6 +267,7 @@ static void goToSleep() {
   s_haveRef = g_motion.ok;
   displayOff();
   powerLog("sleep");
+  drivelogFlush();
   extrasOnSleep();
   s_womQuiet = 0;
   peekSleep();   // peek at the IMU every 4 s (wake-on-motion in between), or wait for a button/touch
@@ -241,6 +284,7 @@ static void hotSleep() {
   s_hotSleep = true;
   s_womArmed = false;
   powerLog("hot");
+  drivelogFlush();
   enterDeepSleep(300);  // recheck the temperature every 5 minutes
 }
 
@@ -252,6 +296,7 @@ static void powerOff() {
   recorderSave();
   displayOff();
   powerLog("off");
+  drivelogFlush();
   extrasOnSleep();
   boardPowerOff();   // on battery this cuts power right here
   delay(300);
@@ -259,8 +304,6 @@ static void powerOff() {
 }
 
 // --------------------------------------------------------------- frame ----
-static bool s_night = false;
-bool isNight() { return s_night; }   // voice.cpp: which brightness to change
 
 static BrainCtx buildCtx() {
   BrainCtx c;
@@ -269,8 +312,8 @@ static BrainCtx buildCtx() {
   c.hadDriven = g_motion.hadDriven;
   int h = localHour();
   c.night = h >= 0 && (h >= 19 || h < 7);
-  s_night = c.night;
   c.batPct = powerPct();
+  c.charging = powerCharging();
   c.tempC = g_motion.tempC;
   c.calibProgress = g_motion.calibProgress;
   c.lon = g_motion.lon;
@@ -288,22 +331,40 @@ static void frame(uint32_t now, float dt, const BrainCtx& ctx) {
   s_crankAngle = fmodf(s_crankAngle + (s_face.spin + extra) * dt + 360.0f, 360.0f);
 
   bool hot = g_motion.tempC > g_set.overheatC;
-  uint32_t interval = hot ? 100 : 33;  // 30 fps, 10 fps when hot
+  // The calm faces (breathing, the slow 2.6 s pump) at 12 fps: drawing is a big share of the
+  // awake draw (pwrtest Nov 19 2026: 10 fps saved ~1/4 of what can be saved, about half the
+  // backlight's share). Anything fast - other faces, a crank drag, rpm-synced pumping - stays at 30.
+  Expr cur = brainCurrent();
+  bool calm = (cur == Expr::Idle || cur == Expr::Bored || cur == Expr::Sleep) && !menuIsOpen() &&
+              !touchActive() && extra == 0 && fabsf(s_face.spin) < 200;
+  uint32_t interval = hot ? 100 : calm ? IDLE_FRAME_MS : 33;  // 30 fps, 12 calm, 10 when hot
+  if (g_ptFrameMs) interval = g_ptFrameMs;
   if (now - s_lastFrame >= interval) {
     s_lastFrame = now;
     uint32_t t0 = micros();
-    if (menuIsOpen()) menuRender(now);
-    else faceRender(s_face, brainText(), s_crankAngle, blink, g_set.glow / 100.0f, now / 1000.0f);
+    bool part = false;
+    int px = 0, py = 0, pw = 0, ph = 0;
+    if (menuIsOpen()) { menuRender(now); faceForceFull(); }
+    else {
+      faceSetStatus((voiceRunning() ? FACE_ST_MIC : 0) | (bleAnyConnected() ? FACE_ST_BT : 0) |
+                    (wifiTuneActive() ? FACE_ST_WIFI : 0) | (obdRpmFresh() ? FACE_ST_OBD : 0));
+      faceRender(s_face, brainText(), s_crankAngle, blink, g_set.glow / 100.0f, now / 1000.0f);
+      part = faceDirtyRect(px, py, pw, ph);
+    }
     uint32_t t1 = micros();
-    displayPush();
+    if (part) displayPushRect(px, py, pw, ph);
+    else displayPush();
     extern uint32_t g_perfFrames, g_perfDrawUs, g_perfPushUs;
     g_perfFrames++; g_perfDrawUs += t1 - t0; g_perfPushUs += micros() - t1;
     if (g_bootLogN < BOOT_LOG && now < 8000)                 // `perf boot`: the first frames after power-on
       g_bootLog[g_bootLogN++] = {now, (uint16_t)((micros() - t0) / 100), (uint8_t)brainCurrent()};
   }
-  int bri = ctx.night ? g_set.nightBri : g_set.dayBri;
+  // One brightness: the clock is lost at every power-off (no RTC backup cell, 1 h auto-off), so
+  // a night level rarely applied (owner, Nov 22 2026). nightBri stays in Settings for the blob layout.
+  int bri = g_set.dayBri;
   if (brainCurrent() == Expr::Sleep) bri = bri / 3;
   if (hot) bri = min(bri, 20);
+  if (g_ptBri >= 0) bri = g_ptBri;
   displayBacklight((uint8_t)(bri * 255 / 100));
   displayUpdateBacklight(dt);
 }
@@ -349,7 +410,12 @@ void setup() {
       why = (st & (1ULL << PIN_TP_INT)) ? "wake-touch" : (st & (1ULL << PIN_BTN_BOOT)) ? "wake-boot"
           : (st & (1ULL << PIN_BTN_PWR)) ? "wake-pwr" : "wake-ext1";
     } else if (cause == ESP_SLEEP_WAKEUP_TIMER) why = "wake-peek";
+    // the cell's voltage from the last sleep peek first (named wake-* so batlog's sleep drain uses it)
+    if (!coldBoot && s_peekMv) powerLogAt("wake-pk", s_peekMv);
+    s_peekMv = 0;
     powerLog(why);
+    // how many sleep peeks it took (4 s for 15 min, then 15 s): proves the interval on the bench
+    if (!coldBoot && s_peeks) { char b[16]; snprintf(b, sizeof(b), "peeks%u", (unsigned)s_peeks); powerLog(b); }
   }
   if (!audioInit()) Serial.println("audio init failed");
   micInit();
@@ -387,7 +453,7 @@ void setup() {
                     s_peekGot, s_peekD, s_peekSd, s_sleepRef[0], s_sleepRef[1], s_sleepRef[2],
                     s_peekMean[0], s_peekMean[1], s_peekMean[2]);
   }
-  s_peeks = 0; s_peekGot = -1;
+  s_peeks = 0; s_peekGot = -1; s_sleptSecs = 0;
   s_lastLoop = millis();
   Serial.println("OTTO " FW_VERSION " ready. Type 'help'.");
 }
@@ -441,6 +507,9 @@ void loop() {
   otaUpdate(now);
   obdUpdate(now);
   wifiTuneUpdate(now);
+  pwrtestUpdate(now);
+  drivelogUpdate(now);
+  if (!g_set.wirelessOn && wifiTuneActive()) wifiTuneStop();   // WIRELESS switched off in the menu
 
   // greeting (on boot / wake / engine start)
   if (s_greetAt && (int32_t)(now - s_greetAt) >= 0) {
@@ -452,21 +521,31 @@ void loop() {
   }
 
   // engine start / stop while awake
+  if (touchActive() || menuIsOpen()) voiceWake();   // "Hi ESP" naps 5 min after the last of these
   if (g_motion.engineStarted) {
     g_motion.engineStarted = false;
+    voiceWake();
     if (s_bootDone && now - s_lastGreet > 600000 && !menuIsOpen()) scheduleGreeting(now, 1700, true);
     else if (s_bootDone && !s_greetAt && now - s_lastGreet > 30000) brainEvent(Expr::EngineOn, 1500);
   }
+  // Drive summary when the engine stops - but only once he's clearly parked: still off and not
+  // moving 20 s later (a smooth idle at a light used to end the drive at every stop)
+  static uint32_t s_summaryAt = 0;
   if (g_motion.engineStopped) {
     g_motion.engineStopped = false;
-    if (g_set.summaryOn) tripShowSummary();
+    s_summaryAt = now + 20000;
+  }
+  if (s_summaryAt && (int32_t)(now - s_summaryAt) >= 0) {
+    s_summaryAt = 0;
+    if (g_set.summaryOn && !g_motion.engineOn && g_motion.stoppedSecs > 20) tripShowSummary();
   }
 
   // battery level once per wake, after the greeting (ChargeSoon instead when it's getting low)
   if (s_batPending && s_bootDone && now - s_bootDone > 2800 && !s_greetAt && idleish()) {
     s_batPending = false;
     int p = powerPct();
-    if (!powerCharging() && p <= 25 && p >= 15) { s_chargeSoonShown = true; brainEvent(Expr::ChargeSoon, 3000); audioChirp(700, 500, 150); }
+    if (powerCharging()) brainEvent(Expr::Charging, 1800);
+    else if (p <= 25 && p >= 15) { s_chargeSoonShown = true; brainEvent(Expr::ChargeSoon, 3000); audioChirp(700, 500, 150); }
     else brainEvent(Expr::BatteryLevel, 1800);
   }
 
@@ -487,7 +566,16 @@ void loop() {
   bool full = powerFull();
   if (full && !s_wasFull) { brainEvent(Expr::Charged, 4000); audioChirp(900, 1800, 200); }
   s_wasFull = full;
-  if (!chg && pct < 15 && now - s_lastLowBatt > 90000) { s_lastLowBatt = now; brainEvent(Expr::LowBattery, 4000); }
+  // Low battery: once each at 15, 8 and 4 % (owner, Nov 22 2026; it used to repeat every 90 s). In
+  // between, his calm faces look more and more tired (brain.cpp). A wake is a reboot, so after a
+  // sleep he warns once more at the level he's at. Plugging in re-arms all three.
+  static int s_warnedAt = 100;
+  if (chg) s_warnedAt = 100;
+  else {
+    static const int kWarn[] = {15, 8, 4};
+    for (int w : kWarn)
+      if (pct < w && s_warnedAt > w) { s_warnedAt = w; s_lastLowBatt = now; brainEvent(Expr::LowBattery, 4000); break; }
+  }
   if (!chg && powerVolts() < 3.35f && powerVolts() > 2.5f) s_wantOff = true;  // protect the cell
   if (g_motion.tempC > g_set.overheatC && now - s_lastHot > 30000) { s_lastHot = now; brainEvent(Expr::Overheat, 4000); }
   if (g_motion.tempC > g_set.hotOffC && !otaActive()) {
@@ -526,8 +614,9 @@ void loop() {
   }
 
   // sleep when parked with nothing connected
-  bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn() || wifiTuneActive();
-  if (g_motion.ok && g_motion.stillSecs > g_set.sleepMin * 60 && !bleAnyConnected() && !busy) s_wantSleep = true;
+  bool busy = menuIsOpen() || otaActive() || touchActive() || launchRunning() || extrasShowOn() || wifiTuneActive() ||
+              pwrtestActive() || motionEngineLearning();
+  if (g_motion.ok && g_motion.stillSecs > g_set.sleepMin * 60 && !bleTunerConnected() && !busy) s_wantSleep = true;   // a paired phone alone doesn't block sleep
 
   if (s_wantOff && !otaActive()) powerOff();
   if (s_wantSleep && !otaActive()) goToSleep();

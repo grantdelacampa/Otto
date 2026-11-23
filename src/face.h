@@ -120,8 +120,13 @@ struct FaceText {
 void faceLerp(FaceState& cur, const FaceState& target, float k);   // k = 0..1 per frame
 void faceRender(const FaceState& f, const FaceText& txt, float crankAngleDeg, float blinkOpen,
                 float glow, float t);
+bool faceDirtyRect(int& x, int& y, int& w, int& h);   // the area the last faceRender changed; false = whole screen
+void faceForceFull();                                   // next frame redraws everything (something else drew on the canvas)
 
 // Text helper for other screens (menu): design-space coordinates, centered unless left/right
 enum class Align : uint8_t { Center, Left, Right };
 void faceText(const char* s, float x, float y, int fontSize, float designH, uint16_t color,
               Align a = Align::Center);   // fontSize: 2 = small, 4 = medium, 7 = 7-segment digits
+// Status icons (lower left): FACE_ST_* bits
+enum : uint8_t { FACE_ST_MIC = 1, FACE_ST_BT = 2, FACE_ST_WIFI = 4, FACE_ST_OBD = 8 };
+void faceSetStatus(uint8_t bits);

@@ -8,6 +8,13 @@ static I2SClass s_i2s;
 static QueueHandle_t s_q = nullptr;
 static volatile bool s_busy = false;
 static uint32_t s_rate = 0;
+// The speaker's I2S clock only runs while a sound plays: with the clock running the PCM5101 DAC
+// stays awake feeding silence; stopped, it drops to standby on its own. (Nov 19 2026, battery work.)
+static bool s_txOn = true;            // begin() leaves the channel running
+static volatile bool s_holdOn = false; // pwrtest: keep the clock running (the old way) to measure it
+static void txOn()  { if (!s_txOn) { i2s_channel_enable(s_i2s.txChan()); s_txOn = true; } }
+static void txOff() { if (s_txOn && !s_holdOn) { i2s_channel_disable(s_i2s.txChan()); s_txOn = false; } }
+void audioHoldClock(bool on) { s_holdOn = on; if (on) txOn(); else if (!s_busy) txOff(); }
 
 struct AudioReq {
   bool clip;
@@ -111,6 +118,7 @@ static void audioTask(void*) {
     if (xQueueReceive(s_q, &r, portMAX_DELAY) != pdTRUE) continue;
     if (g_set.volume <= 0) continue;
     s_busy = true;
+    txOn();                             // before setRate: configureTX expects a running channel
     if (r.clip) {
       if (!playWav(r.name)) {  // no clip uploaded yet: friendly two-note chirp
         playChirp(880, 1320, 90);
@@ -120,6 +128,8 @@ static void audioTask(void*) {
       playChirp(r.f0, r.f1, r.ms);
     }
     silence(30);
+    // more queued? keep the clock for it; otherwise stop it (the 30 ms of silence has been sent)
+    if (!uxQueueMessagesWaiting(s_q)) txOff();
     s_busy = false;
   }
 }
@@ -128,6 +138,7 @@ bool audioInit() {
   s_i2s.setPins(PIN_SPK_BCK, PIN_SPK_WS, PIN_SPK_DOUT);
   if (!s_i2s.begin(I2S_MODE_STD, 16000, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) return false;
   s_rate = 16000;
+  txOff();
   s_q = xQueueCreate(4, sizeof(AudioReq));
   xTaskCreatePinnedToCore(audioTask, "audio", 6144, nullptr, 3, nullptr, 0);
   return true;

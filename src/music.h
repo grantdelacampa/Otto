@@ -15,3 +15,8 @@ float musicBpm();                             // estimated tempo (valid while mu
 void musicStatus(char* b, size_t n);          // `music` command
 void musicWatch(float secs);                  // `music watch [secs]`: print the numbers to serial
 void musicSetThresholds(const char* what, float v);   // `music loud <dB above background>|beat|steady <v>` (bench, not saved)
+void musicDebug(float& lvl, float& floor, float& beat);   // drivelog: level / background dBFS, beat strength
+// Learning the car's own noise (ENGINE LEARN / learn the road): true while the analysis is running
+// (MUSIC BOB on, mic being read); then the latest level (dBFS), beat strength and tempo estimate.
+bool musicLive();
+void musicSample(float& lvl, float& beat, float& bpm);
