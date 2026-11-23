@@ -4,7 +4,7 @@
 #include <ArduinoJson.h>
 
 Settings g_set;
-static const uint32_t SETTINGS_VERSION = 5;   // Otto starts its own numbering (own NVS namespace)
+static const uint32_t SETTINGS_VERSION = 6;   // Otto starts its own numbering (own NVS namespace)
 // Versions 3 and 4 only appended fields, so an older blob is a prefix of today's: load it over the
 // defaults and the owner keeps everything (mount calibration included).
 // v2 ended on an int (no tail padding); v3 ended on a bool, so its blob carries padding up to the
@@ -13,6 +13,7 @@ static const size_t V2_SIZE = offsetof(Settings, wirelessOn);
 static const size_t V3_USED = offsetof(Settings, wirelessOn) + sizeof(bool);
 static const size_t V3_SIZE = (V3_USED + alignof(Settings) - 1) / alignof(Settings) * alignof(Settings);
 static const size_t V4_SIZE = offsetof(Settings, idleGyro);   // v4 ended on a float: no padding
+static const size_t V5_SIZE = offsetof(Settings, idleNoiseDb);   // v5 ended on a float too
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 static int   clampi(int v, int lo, int hi)       { return v < lo ? lo : (v > hi ? hi : v); }
@@ -38,6 +39,8 @@ static void sanitize(Settings& s) {
   s.quietRoad = clampf(s.quietRoad, 0.002f, 0.05f);
   s.idleGyro = clampf(s.idleGyro, 0, 5); s.idleRoad = clampf(s.idleRoad, 0, 0.1f);
   s.cruiseGyro = clampf(s.cruiseGyro, 0, 20); s.cruiseRoad = clampf(s.cruiseRoad, 0, 0.3f);
+  s.idleNoiseDb = clampf(s.idleNoiseDb, -100, 0); s.cruiseNoiseDb = clampf(s.cruiseNoiseDb, -100, 0);
+  s.idleBeat = clampf(s.idleBeat, 0, 1); s.idleBpm = clampf(s.idleBpm, 0, 250);
   s.revRatio  = clampf(s.revRatio, 1.3f, 5.0f);
   s.hotOffC   = clampf(s.hotOffC, 50, 85);
   if (s.hotOffC < s.overheatC + 3) s.hotOffC = s.overheatC + 3;
@@ -60,11 +63,12 @@ void settingsLoad() {
   size_t len = p.getBytesLength("set");
   if (ver == SETTINGS_VERSION && len == sizeof(Settings)) {
     p.getBytes("set", &g_set, sizeof(Settings));
-  } else if ((ver == 2 && len == V2_SIZE) || (ver == 3 && len == V3_SIZE) || (ver == 4 && len == V4_SIZE)) {
+  } else if ((ver == 2 && len == V2_SIZE) || (ver == 3 && len == V3_SIZE) || (ver == 4 && len == V4_SIZE) ||
+             (ver == 5 && len == V5_SIZE)) {
     static uint8_t buf[sizeof(Settings)];
     p.getBytes("set", buf, len);
     g_set = Settings();
-    memcpy(&g_set, buf, ver == 2 ? V2_SIZE : ver == 3 ? V3_USED : V4_SIZE);
+    memcpy(&g_set, buf, ver == 2 ? V2_SIZE : ver == 3 ? V3_USED : ver == 4 ? V4_SIZE : V5_SIZE);
   } else {
     g_set = Settings();
   }
@@ -113,6 +117,8 @@ String settingsToJson() {
   d["quietGyro"] = g_set.quietGyro; d["quietRoad"] = g_set.quietRoad;
   d["idleGyro"] = g_set.idleGyro; d["idleRoad"] = g_set.idleRoad;
   d["cruiseGyro"] = g_set.cruiseGyro; d["cruiseRoad"] = g_set.cruiseRoad;
+  d["idleNoiseDb"] = g_set.idleNoiseDb; d["idleBeat"] = g_set.idleBeat; d["idleBpm"] = g_set.idleBpm;
+  d["cruiseNoiseDb"] = g_set.cruiseNoiseDb;
   String out;
   serializeJson(d, out);
   return out;
@@ -137,7 +143,7 @@ bool settingsApplyJson(const char* json) {
   I(hotC) I(coldC) I(showMin)
   B(obdOn) I(shiftRpm) I(coldCoolC) I(hotCoolC)
   B(wirelessOn) B(driveLogOn) F(engOffVib) F(idleVib) F(quietGyro) F(quietRoad)
-  F(idleGyro) F(idleRoad) F(cruiseGyro) F(cruiseRoad)
+  F(idleGyro) F(idleRoad) F(cruiseGyro) F(cruiseRoad) F(idleNoiseDb) F(idleBeat) F(idleBpm) F(cruiseNoiseDb)
   if (d["showL1"].is<const char*>()) strlcpy(s.showL1, d["showL1"].as<const char*>(), sizeof(s.showL1));
   if (d["showL2"].is<const char*>()) strlcpy(s.showL2, d["showL2"].as<const char*>(), sizeof(s.showL2));
 #undef F

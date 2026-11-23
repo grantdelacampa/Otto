@@ -139,6 +139,12 @@ Recalibrating by voice also works when parked: "Hi ESP" then "recalibrate" (or "
 If touches land in the wrong place, type `touch`, tap the corners, and set
 `TOUCH_SWAP_XY` / `TOUCH_MIRROR_X` / `TOUCH_MIRROR_Y` in `src/config.h`.
 
+### ENGINE LEARN and learn the road also learn the car's noise
+With **music off** (and MUSIC BOB on in the menu), both learns also listen: ENGINE LEARN learns how
+loud the idle is and the V8's own rhythm, learn the road learns how loud cruising is. Otto then
+won't bob to the engine or road noise, and music only counts when it's louder than the car.
+Learned with music on by mistake? Just run it again. Per car, like the rest of the learns.
+
 ## 6. Tuning page
 
 **From a phone (any phone, plain Safari / Chrome):** Otto's menu → **WI-FI TUNING** (or `wifi on`).

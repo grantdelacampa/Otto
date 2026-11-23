@@ -11,6 +11,8 @@
 - [x] Bench: display, touch (tap, pet, crank drag), I2C devices, voice, battery ADC
 
 ## Next
+- [ ] Car noise learn (Nov 22 2026): flash, check settings survived (v5 -> v6), run ENGINE LEARN with
+      music off (serial shows "engine learn: sound ..."), then learn the road; does music still bob?
 - [x] Phone clock (branch `phone-clock`, Nov 22 2026): paired from iPhone Settings, clock read
 - [x] Phone clock: iOS reconnects by itself as soon as he wakes; the on-screen keyboard still works
       with Otto (a remote) connected (owner's iPhone, Nov 22 2026)

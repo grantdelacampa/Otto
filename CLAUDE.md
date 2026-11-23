@@ -182,6 +182,15 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   only 2.4 dB/min, so idle rumble bobbed him. The background now rises 1 dB/s while it's loud with no
   music, and no bob starts in the first 30 s after a wake. Staying on needs 5 of the last 16 checks
   on tempo (an office's tempo hopped 81-157 BPM). Absolute floor -52 dBFS to start, -55 to stay.
+- **Car noise learn** (Nov 22 2026, settings v6 appended idleNoiseDb / idleBeat / idleBpm / cruiseNoiseDb;
+  not yet run in the car, v5 -> v6 migration not yet seen on the board): ENGINE LEARN's idle phase and
+  learn the road also sample the music analysis every 500 ms (needs MUSIC BOB on: that's what runs it).
+  Idle: median level + beat, and the tempo a third of the estimates agree on (6 %) = the V8's rhythm.
+  Road: 30th percentile level. music.cpp: with the engine on, the background never sits below the
+  learned noise (idle when quietSecs > 1, else max(idle, cruise)); at idle a tempo near idleBpm (x1,
+  x2, x0.5) isn't music; a learned value skips the 30 s wake wait. No "music heard" refusal during a
+  learn on purpose (the idle rumble is what fooled the detector); the cards say MUSIC OFF.
+  Owner's goal: Otto tunes himself; no one should have to read logs.
 - **Phone clock** (ble.cpp, branch `phone-clock`, Nov 22 2026; **works on the owner's iPhone**: keyboard unaffected, iOS reconnects him on wake; paired
   from Settings > Bluetooth, read 14:45 tz -480): the RTC has no backup cell. iOS Settings lists only
   devices with a service it uses itself (an ANCS solicitation did NOT get him listed), so Otto is also

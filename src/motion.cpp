@@ -7,6 +7,7 @@
 #include "recorder.h"
 #include "trip.h"
 #include "audio.h"
+#include "music.h"
 #include <math.h>
 
 MotionState g_motion;
@@ -404,6 +405,52 @@ static const int ROAD_N = 220;
 static float s_rG[ROAD_N], s_rR[ROAD_N];
 static int s_rN = 0;
 static uint32_t s_rLast = 0;
+// Sound (for the music detector), sampled with the learns every 500 ms while the analysis runs:
+// level / beat / tempo.
+static const int SND_N = 64;
+static float s_sL[SND_N], s_sB[SND_N], s_sE[SND_N];
+static int s_sN = 0;
+static uint32_t s_sLast = 0;
+
+static void soundReset() { s_sN = 0; s_sLast = 0; }
+static void soundSample(uint32_t now) {
+  // (no "music heard" check: the V8 idling is what fooled the detector, so it would refuse the very
+  // noise it has to learn. The card says MUSIC OFF; learning with music on = just run it again.)
+  if (!musicLive() || now - s_sLast < 500 || s_sN >= SND_N) return;
+  s_sLast = now;
+  musicSample(s_sL[s_sN], s_sB[s_sN], s_sE[s_sN]);
+  if (s_sL[s_sN] > -99) s_sN++;
+}
+static float pctOf(float* v, int n, float q) {   // sorts v in place
+  for (int i = 1; i < n; i++) { float t = v[i]; int j = i - 1; while (j >= 0 && v[j] > t) { v[j + 1] = v[j]; j--; } v[j + 1] = t; }
+  return v[(int)(n * q)];
+}
+// "" = saved; otherwise why the sound wasn't learned (shown on the card)
+static const char* soundIdleDone() {
+  if (s_sN < 12) return g_set.bobOn ? "MIC NOT READ - SOUND NOT LEARNED" : "MUSIC BOB OFF - SOUND NOT LEARNED";
+  // the engine's tempo: the estimate most others agree with (within 6 %), if a third of them do
+  float bestBpm = 0; int bestN = 0;
+  for (int i = 0; i < s_sN; i++) {
+    int k = 0;
+    for (int j = 0; j < s_sN; j++) if (fabsf(s_sE[j] - s_sE[i]) < s_sE[i] * 0.06f) k++;
+    if (k > bestN) { bestN = k; bestBpm = s_sE[i]; }
+  }
+  int n = s_sN;
+  g_set.idleNoiseDb = pctOf(s_sL, n, 0.5f);
+  g_set.idleBeat = pctOf(s_sB, n, 0.5f);
+  g_set.idleBpm = bestN * 3 >= n ? bestBpm : 0;
+  Serial.printf("engine learn: sound %.1f dBFS, beat %.2f, tempo %.0f BPM (%d of %d agree)%s\n", g_set.idleNoiseDb,
+                g_set.idleBeat, bestBpm, bestN, n, g_set.idleBpm > 0 ? "" : " - no steady rhythm");
+  return "";
+}
+static const char* soundRoadDone() {
+  if (s_sN < 12) return g_set.bobOn ? "MIC NOT READ - SOUND NOT LEARNED" : "MUSIC BOB OFF - SOUND NOT LEARNED";
+  g_set.cruiseNoiseDb = pctOf(s_sL, s_sN, 0.3f);   // the quieter end: road noise rises with speed
+  Serial.printf("road learn: sound %.1f dBFS (%d readings)\n", g_set.cruiseNoiseDb, s_sN);
+  return "";
+}
+static const char* s_sNote = "";   // the sound result, for the done card
+
 static uint32_t s_engOnMs = 0, s_engOffMs = 0, s_lastRev = 0;
 static bool s_inRev = false;
 
@@ -602,6 +649,7 @@ void motionStartEngineLearn() {
   if (!g_motion.ok || g_motion.calibrating) return;
   s_learnTitle = "ENGINE LEARN";
   s_learn = Learn::Idle; s_learnAt = millis(); s_lVib = s_lRoad = s_lGyro = 0; s_lN = 0; s_lTap = false;
+  soundReset(); s_sNote = "";
   Serial.println("engine learn: measuring idle (engine running, in P)");
   audioChirp(700, 1000, 120);
 }
@@ -637,6 +685,7 @@ static void learnDone(float floorV, bool measured) {
     brainSetAnswer("ENGINE LEARN", "?", sub);
     brainEventPrio(Expr::EngineLearn, 5000, 88);
     audioChirp(600, 400, 250);
+    if (!*s_sNote) settingsSave();             // the sound part stands on its own
     return;
   }
   // geometric steps between the two levels: "on" halfway (in ratio) from off to idle, "off" lower still
@@ -654,6 +703,7 @@ static void learnDone(float floorV, bool measured) {
   snprintf(ev, sizeof(ev), "learn idle %.4f off %.4f", s_lIdleVib, floorV);
   drivelogEvent(ev);
   snprintf(sub, sizeof(sub), "IDLE %.1f MG - OFF %.1f MG", s_lIdleVib * 1000, floorV * 1000);
+  if (*s_sNote) snprintf(sub, sizeof(sub), "%s", s_sNote);   // vibration fine, but say why no sound
   brainSetAnswer("ENGINE LEARNED", "OK", sub);
   brainEventPrio(Expr::EngineLearn, 5000, 88);
   audioChirp(900, 1400, 150);
@@ -663,6 +713,7 @@ void motionStartRoadLearn() {
   if (!g_motion.ok || g_motion.calibrating) return;
   s_learnTitle = "LEARN THE ROAD";
   s_learn = Learn::Road; s_learnAt = millis(); s_rN = 0; s_rLast = 0; s_lTap = false;
+  soundReset(); s_sNote = "";
   Serial.println("road learn: measuring 20 s of steady driving");
   audioChirp(700, 1000, 120);
 }
@@ -691,6 +742,7 @@ static void roadDone() {
   }
   g_set.cruiseGyro = cG; g_set.cruiseRoad = cR;
   recomputeQuiet();
+  s_sNote = soundRoadDone();
   settingsSave();
   Serial.printf("road learn: quiet = wobble < %.2f dps, road < %.4f g\n", g_set.quietGyro, g_set.quietRoad);
   char ev[64];
@@ -698,6 +750,7 @@ static void roadDone() {
   drivelogEvent(ev);
   if (idleKnown) snprintf(sub, sizeof(sub), "ROAD %.1fx IDLE", fmaxf(cG / iG, cR / iR));
   else snprintf(sub, sizeof(sub), "NOW RUN ENGINE LEARN (PARKED)");   // saved; used once idle is known
+  if (*s_sNote) snprintf(sub, sizeof(sub), "%s", s_sNote);
   brainSetAnswer("ROAD LEARNED", "OK", sub);
   brainEventPrio(Expr::EngineLearn, 4000, 88);
   audioChirp(900, 1400, 150);
@@ -711,10 +764,11 @@ static void engineLearnStep(uint32_t now, float vib, bool selfNoise) {
   switch (s_learn) {
     case Learn::Idle:
       if (tap) { s_learn = Learn::Off; Serial.println("engine learn: cancelled"); brainEvent(Expr::Idle, 100); return; }
-      if (sample) { s_lVib += vib; s_lRoad += g_motion.road; s_lGyro += g_motion.gyroLP; s_lN++; }
-      learnCard("IDLE", "ENGINE RUNNING, IN P - TAP: STOP", fminf(1.0f, el / (float)L_IDLE_MS));
+      if (sample) { s_lVib += vib; s_lRoad += g_motion.road; s_lGyro += g_motion.gyroLP; s_lN++; soundSample(now); }
+      learnCard("IDLE", "IN P, MUSIC OFF - TAP: STOP", fminf(1.0f, el / (float)L_IDLE_MS));
       if (el >= L_IDLE_MS && s_lN) {
         s_lIdleVib = s_lVib / s_lN; s_lIdleRoad = s_lRoad / s_lN; s_lIdleGyro = s_lGyro / s_lN;
+        s_sNote = soundIdleDone();                 // saved with the rest in learnDone (settingsSave)
         Serial.printf("engine learn: idle vib %.4f g, road %.4f g, gyro %.2f dps; now turn the engine off\n",
                       s_lIdleVib, s_lIdleRoad, s_lIdleGyro);
         s_learn = Learn::WaitOff; s_learnAt = now; s_lowSince = 0;
@@ -742,7 +796,8 @@ static void engineLearnStep(uint32_t now, float vib, bool selfNoise) {
       if (el > L_SETTLE_MS && now - s_rLast >= 90 && s_rN < ROAD_N) {
         s_rLast = now; s_rG[s_rN] = g_motion.gyroLP; s_rR[s_rN] = g_motion.road; s_rN++;
       }
-      learnCard("DRIVE", "KEEP DRIVING STEADY", fminf(1.0f, el / (float)(L_ROAD_MS + L_SETTLE_MS)));
+      if (el > L_SETTLE_MS && !selfNoise) soundSample(now);
+      learnCard("DRIVE", "DRIVE STEADY, MUSIC OFF", fminf(1.0f, el / (float)(L_ROAD_MS + L_SETTLE_MS)));
       if (el >= L_ROAD_MS + L_SETTLE_MS) roadDone();
       break;
     default: break;

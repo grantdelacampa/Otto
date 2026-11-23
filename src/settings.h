@@ -65,6 +65,11 @@ struct Settings {
   // --- added in SETTINGS_VERSION 5: what quietGyro / quietRoad are worked out from (0 = not learned)
   float idleGyro = 0, idleRoad = 0;      // ENGINE LEARN: wobble (dps) / road (g) at idle in P
   float cruiseGyro = 0, cruiseRoad = 0;  // "learn the road" (voice): the quiet end of steady cruising
+  // --- added in SETTINGS_VERSION 6: the car's own noise for the music detector (0 = not learned) ---
+  float idleNoiseDb = 0;     // ENGINE LEARN: mic level (dBFS) idling in P, music off
+  float idleBeat = 0;        // ENGINE LEARN: the idle's beat strength (the V8's own rhythm)
+  float idleBpm = 0;         // ENGINE LEARN: its tempo, if steady (0 = no steady rhythm)
+  float cruiseNoiseDb = 0;   // learn the road: mic level (dBFS) cruising, quiet end
 };
 
 extern Settings g_set;
