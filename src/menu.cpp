@@ -18,7 +18,7 @@
 
 enum class Kind : uint8_t { Value, Toggle, Action, BdayPicker };
 enum class View : uint8_t { List, Edit, ConfirmCal, Info, BdayMonth, BdayDay };
-enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes, Wifi, EngLearn };
+enum class Act : uint8_t { None, Launch, Recal, Info, Exit, Birthday, Show, Codes, Wifi, EngLearn, Flip };
 
 struct Item {
   const char* name;
@@ -51,6 +51,7 @@ static Item s_items[] = {
   {"WIRELESS",     Kind::Toggle, nullptr, &g_set.wirelessOn, 0, 0, 0, Act::None},
   {"WI-FI TUNING", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Wifi},
   {"RECALIBRATE",  Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Recal},
+  {"FLIP SCREEN",  Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Flip},
   {"ENGINE LEARN", Kind::Action, nullptr, nullptr, 0, 0, 0, Act::EngLearn},
   {"DRIVE LOG",    Kind::Toggle, nullptr, &g_set.driveLogOn, 0, 0, 0, Act::None},
   {"INFO",         Kind::Action, nullptr, nullptr, 0, 0, 0, Act::Info},
@@ -92,6 +93,7 @@ static void valueText(const Item& it, char* b, size_t n) {
   if (it.kind == Kind::Value) snprintf(b, n, "%d%%", *it.ival);
   else if (it.kind == Kind::Toggle) snprintf(b, n, "%s", *it.bval ? "ON" : "OFF");
   else if (it.act == Act::Wifi) snprintf(b, n, "%s", wifiTuneActive() ? "ON" : g_set.wirelessOn ? "OFF" : "NO RADIO");   // an action, shown like a toggle
+  else if (it.act == Act::Flip) snprintf(b, n, "%s", g_set.screenFlip ? "ON" : "OFF");   // set by calibration; this overrides
   else if (it.kind == Kind::BdayPicker) {
     if (g_set.birthdayMonth > 0 && g_set.birthdayDay > 0)
       snprintf(b, n, "%s %d", kMonths[g_set.birthdayMonth], g_set.birthdayDay);
@@ -120,6 +122,11 @@ void menuTap(float, float) {
           case Act::Show: menuClose(true); extrasShow(true); break;
           case Act::Recal: s_view = View::ConfirmCal; break;
           case Act::EngLearn: menuClose(true); motionStartEngineLearn(); break;
+          case Act::Flip:
+            g_set.screenFlip = !g_set.screenFlip; s_dirty = true;
+            displaySetFlip(g_set.screenFlip);
+            audioChirp(g_set.screenFlip ? 900 : 1200, g_set.screenFlip ? 1300 : 800, 60);
+            break;
           case Act::Info: s_view = View::Info; break;
           case Act::Codes: menuClose(true); obdShowCodes(); break;
           case Act::Wifi:

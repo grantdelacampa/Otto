@@ -20,3 +20,4 @@ void musicDebug(float& lvl, float& floor, float& beat);   // drivelog: level / b
 // (MUSIC BOB on, mic being read); then the latest level (dBFS), beat strength and tempo estimate.
 bool musicLive();
 void musicSample(float& lvl, float& beat, float& bpm);
+float musicSteady();                          // drivelog: share of the last 4 s without a gap

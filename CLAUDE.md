@@ -1,6 +1,8 @@
 # OTTO — project context for Claude
 
 Read this first, then `TODO.md`. `README.md` is the user-facing manual.
+Driving / music tuning history: `docs/tuning/TUNING.md` (one entry per drive, `TUNE_REV` in config.h,
+report = `tools/drivereport.py COM4`). **Drive tests since Nov 23 2026 are in a Honda Civic**, not the E420.
 
 ## What this is
 OTTO is a dash companion for the owner's **1997 Mercedes-Benz E420** (W210, M119 4.2 V8): a piston
@@ -118,6 +120,23 @@ freely, so a bug fixed in one may need fixing in the other. Rotor's CLAUDE.md ha
   - Settings blob: SETTINGS_VERSION 3 only **appended** `wirelessOn`; settingsLoad carries a v2 blob
     over (`V2_SIZE = offsetof(Settings, wirelessOn)`) so the mount calibration survives. Append new
     fields at the end the same way instead of resetting everyone's settings.
+  - **Panel mirror** (bench, Nov 23 2026; serial `mirror <x> <y>`, not saved): MADCTL bit 1 (x) flips
+    left-right, bit 0 (y) top-bottom; both = a clean hardware 180 deg, partial frames included, no
+    cost. The driver has no swap_xy, so 90 / 270 deg would need a rotated copy in displayPush
+    (estimated 3-5 ms a full frame; not built: owner wants dash or roof only).
+  - **Screen flip** (roof mount, Nov 23 2026, settings v7 appended int `screenFlip`; v6 -> v7 checked
+    on the board): calibration projects the saved up onto the screen plane (chip X/Y) and flips when
+    it points against `SCREEN_UP_X/Y` (config.h, chip **+X** = top of the screen, measured upright:
+    up 0.95 0.02 0.09); within ~20 deg of flat it keeps the setting. Menu FLIP SCREEN overrides.
+    displayInit applies it, touch.cpp mapPoint flips x/y with it, settingsReset keeps it (mount).
+    Bench: upside-down calibrate flipped him, taps / petting / crank drag / menu right, survives a
+    reboot. A `cfg` / tuning-page change to screenFlip only shows after a restart.
+  - **Engine not felt** (tune 2, Nov 23 2026, settings v8 `engineFelt`; v7 -> v8 checked on the board): in
+    the Civic the IMU read 0.10 mg idling and off alike. ENGINE LEARN now uses medians (~10 Hz
+    samples into s_lV / s_rR / s_rG) and, with a real engine-off measured, saves engineFelt = 0
+    instead of refusing. Then cabinQuiet() in motion.cpp: engine off also needs the mic level 12 dB
+    under its value 2 s into the stop (or long still: sleepMin x 60 - 45 s, 30..100, so the summary beats sleep); revs from vibration off. music.cpp: background
+    may sit 6 dB under the learned noise (LEARNED_SLACK_DB). Drive log +bpm,steady columns.
   - SPD2010 wants window edges on multiples of 4: `display.cpp` pushes full-width 32-row stripes.
   - **Touch runs in its own task** (`readerTask` in touch.cpp, core 1, prio 2, every 10 ms) feeding
     time-stamped samples to the gesture code. The SPD2010 shows a lift only as an idle status read

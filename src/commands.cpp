@@ -344,6 +344,14 @@ void handleCommand(const char* raw, uint16_t src) {
                bleAdvertising() ? "yes" : "no", bleReady() ? bleAdvRc(0) : 0, bleReady() ? bleAdvRc(1) : 0);
       reply(src, b);
     }
+  } else if ((a = arg(line, "mirror"))) {         // bench: mirror <x 0|1> <y 0|1> = panel MADCTL mirror
+    int mx = 0, my = 0;
+    sscanf(a, "%d %d", &mx, &my);
+    extern bool displayMirror(bool, bool);
+    bool ok = displayMirror(mx, my);
+    char b[64];
+    snprintf(b, sizeof(b), "mirror: x %d y %d %s", mx, my, ok ? "sent" : "FAILED");
+    reply(src, b);
   } else if ((a = arg(line, "autooff"))) {        // bench: autooff <secs> = power off after this long asleep (once)
     extern void setAutoOffTest(uint32_t);
     int secs = atoi(a);

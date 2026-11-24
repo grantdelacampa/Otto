@@ -1,4 +1,5 @@
 #include "drivelog.h"
+#include "config.h"
 #include "motion.h"
 #include "brain.h"
 #include "music.h"
@@ -45,18 +46,21 @@ void drivelogUpdate(uint32_t now) {
       if (!s_header) {
         s_header = true;
         char h[96];
-        snprintf(h, sizeof(h), "# wake %lu (rtc), %d mV\n", (unsigned long)rtcNowUtc(), (int)(powerVolts() * 1000));
+        snprintf(h, sizeof(h), "# wake %lu (rtc), %d mV, tune %d\n", (unsigned long)rtcNowUtc(),
+                 (int)(powerVolts() * 1000), TUNE_REV);   // TUNE_REV: docs/tuning/TUNING.md
         s_buf += h;
       }
-      float lvl, floor, beat;
+      float lvl, floor, beat, l2, b2, bpm;
       musicDebug(lvl, floor, beat);
+      musicSample(l2, b2, bpm);
       // t, vib (mg x10), road (mg x10), gyro (dps x10), stopped s, quiet s, engine, face, music
-      // level dB, background dB, beat x100, bobbing
-      char b[120];
-      snprintf(b, sizeof(b), "%lu,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d\n", (unsigned long)(now / 1000),
+      // level dB, background dB, beat x100, bobbing; tune 2+: tempo estimate BPM, steady x100
+      char b[140];
+      snprintf(b, sizeof(b), "%lu,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d\n", (unsigned long)(now / 1000),
                (int)(g_motion.vib * 10000), (int)(g_motion.road * 10000), (int)(g_motion.gyroLP * 10),
                (int)g_motion.stoppedSecs, (int)g_motion.quietSecs, g_motion.engineOn,
-               exprName(brainCurrent()), (int)lvl, (int)floor, (int)(beat * 100), musicHeard());
+               exprName(brainCurrent()), (int)lvl, (int)floor, (int)(beat * 100), musicHeard(),
+               (int)bpm, (int)(musicSteady() * 100));
       s_buf += b;
     }
   }
@@ -65,7 +69,7 @@ void drivelogUpdate(uint32_t now) {
 
 void drivelogDump(uint16_t src, void (*reply)(uint16_t, const char*)) {
   flushNow();
-  reply(src, "# t,vib(0.1mg),road(0.1mg),gyro(0.1dps),stopped,quiet,eng,face,lvl,bg,beat,bob");
+  reply(src, "# t,vib(0.1mg),road(0.1mg),gyro(0.1dps),stopped,quiet,eng,face,lvl,bg,beat,bob,bpm,steady");
   int n = 0;
   for (const char* path : {LOG_OLD, LOG}) {
     File f = LittleFS.open(path, FILE_READ);

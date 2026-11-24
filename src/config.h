@@ -35,6 +35,17 @@
 #define TOUCH_SWAP_XY   0
 #define TOUCH_MIRROR_X  0
 #define TOUCH_MIRROR_Y  0
+
+// Bump with every change to the driving / music detection that a drive should check. The drive
+// log stamps it on each session ("tune N") and docs/tuning/TUNING.md says what each one changed.
+#define TUNE_REV        2
+
+// Which way the top of the screen points in the IMU's X/Y axes (Z goes out of the back): the
+// gravity "up" a calibration saves when the board stands upright on the dash. Calibration flips
+// the screen when the saved up points the other way (roof mount). Bench, Nov 23 2026: upright
+// calibrated to up (0.95, 0.02, 0.09) = chip +X.
+#define SCREEN_UP_X     1.0f
+#define SCREEN_UP_Y     0.0f
 // If no report comes for this long while a finger is down, the finger counts as
 // lifted. Raise it if petting keeps stopping.
 #define TOUCH_RELEASE_MS 250

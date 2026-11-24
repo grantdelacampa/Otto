@@ -95,7 +95,7 @@ Halloween (jack-o'-lantern piston), Thanksgiving, Christmas.
 
 Menu: BRIGHTNESS, VOLUME, GREETINGS, REVS, V8 MODE, MUSIC BOB, BORED, YAWNS,
 HOLIDAYS, MOTION WAKE, BIRTHDAY, VOICE, PRO TREE, LAUNCH MODE, CAR SHOW, GUARD, OBD ADAPTER,
-ENGINE CODES, WIRELESS, WI-FI TUNING, RECALIBRATE, ENGINE LEARN, DRIVE LOG, INFO, EXIT. **WIRELESS** off = no Bluetooth and
+ENGINE CODES, WIRELESS, WI-FI TUNING, RECALIBRATE, FLIP SCREEN, ENGINE LEARN, DRIVE LOG, INFO, EXIT. **WIRELESS** off = no Bluetooth and
 no Wi-Fi tuning at all (turn it back on here to use the tuning page). Swipe up/down to scroll, tap to pick; it closes after 15 s untouched or when you
 drive off.
 
@@ -135,6 +135,11 @@ Leave it on while the driving faces are being tuned; it costs next to nothing.
 
 Recalibrating by voice also works when parked: "Hi ESP" then "recalibrate" (or "calibrate",
 "recalibrate mount", "level yourself").
+
+**Roof mount:** Otto can hang upside down (an overhead console, up by the mirror). Recalibrate once
+he's mounted and he turns his picture and touch over by himself; back on the dash, recalibrate
+again. Mounted nearly flat (screen facing straight down) he can't tell which edge is up, so use
+**FLIP SCREEN** in the menu. Only upright and upside down are supported, not sideways.
 
 If touches land in the wrong place, type `touch`, tap the corners, and set
 `TOUCH_SWAP_XY` / `TOUCH_MIRROR_X` / `TOUCH_MIRROR_Y` in `src/config.h`.

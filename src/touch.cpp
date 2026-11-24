@@ -5,6 +5,7 @@
 #include "audio.h"
 #include "menu.h"
 #include "motion.h"
+#include "settings.h"
 #include <Wire.h>
 
 // ------------------------------------------------------------- SPD2010 ----
@@ -63,6 +64,7 @@ static void mapPoint(int16_t& x, int16_t& y) {
 #if TOUCH_MIRROR_Y
   y = LCD_H - 1 - y;
 #endif
+  if (g_set.screenFlip) { x = LCD_W - 1 - x; y = LCD_H - 1 - y; }   // picture turned 180 deg (display.cpp)
 }
 
 // Returns number of points (0 = no finger), or -1 if nothing new was read.

@@ -59,6 +59,7 @@ static bool s_live = false;       // analysis running on fresh mic data
 // The car's own noise, learned by ENGINE LEARN (idle) / learn the road (cruising), with music off.
 // While the engine runs, the background never sits below it: no 30 s catch-up after a wake, and a
 // quiet moment can't make the car look loud. -999 = nothing learned (or engine off).
+static const float LEARNED_SLACK_DB = 6;   // see analyse(): how far below the learned noise it may sit
 static bool engineIdling() { return g_motion.engineOn && g_motion.quietSecs > 1; }
 static float learnedNoise() {
   if (!g_motion.engineOn) return -999;
@@ -81,6 +82,7 @@ static bool s_cand = false;
 bool musicHeard() { return s_heard; }
 void musicDebug(float& lvl, float& floor, float& beat) { lvl = s_lvl; floor = s_floor; beat = s_beat; }
 float musicBpm() { return s_bpmShown; }
+float musicSteady() { return s_steady; }
 
 static float pctile(float* v, int n, float p) {     // sorts v in place
   for (int i = 1; i < n; i++) { float t = v[i]; int j = i - 1; while (j >= 0 && v[j] > t) { v[j + 1] = v[j]; j--; } v[j + 1] = t; }
@@ -146,8 +148,11 @@ static void analyse() {
   // 2.4 dB/min a quiet moment at boot (-58) left everything in the car "6 dB louder", and idle rumble
   // bobbed him (drive log, Nov 22 2026). Music starts the bob within ~2 s, so it costs ~2 dB.
   else if (!s_heard) s_floor += s_lvl > s_floor + s_loudDb ? 0.5f : 0.02f;
+  // The learned noise holds the background up, with room for a quieter cabin: the Civic learned
+  // -15 dB cruising with the defroster on, and a floor stuck there would leave quieter music unheard
+  // for good once the fan is off (owner, Nov 23 2026). The 1 dB/s rise above still catches up.
   float car = learnedNoise();
-  if (s_floor < car) s_floor = car;
+  if (car > -999 && s_floor < car - LEARNED_SLACK_DB) s_floor = car - LEARNED_SLACK_DB;
   // Hysteresis: starting needs the full test, but once bobbing, looser limits keep it going through
   // quieter bars and road noise (in the car the bob dropped out on its own, Nov 19 2026: road
   // rumble sits right in the bass band the beat comes from).

@@ -1,5 +1,6 @@
 #include "display.h"
 #include "board.h"
+#include "settings.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "driver/spi_master.h"
@@ -77,6 +78,7 @@ bool displayInit() {
   if (esp_lcd_new_panel_spd2010(s_io, &pcfg, &s_panel) != ESP_OK) return false;
   esp_lcd_panel_reset(s_panel);
   esp_lcd_panel_init(s_panel);
+  if (g_set.screenFlip) esp_lcd_panel_mirror(s_panel, true, true);   // mounted upside down (roof)
   esp_lcd_panel_disp_on_off(s_panel, true);
 
   for (int i = 0; i < 2; i++) {
@@ -131,6 +133,20 @@ void displayPush() {
   xSemaphoreTake(s_done, portMAX_DELAY);
   xSemaphoreGive(s_done);
   xSemaphoreGive(s_done);
+}
+
+bool displayMirror(bool x, bool y) {
+  bool ok = esp_lcd_panel_mirror(s_panel, x, y) == ESP_OK;
+  displayPush();
+  return ok;
+}
+
+// The panel's MADCTL mirror bits (bench, Nov 23 2026): both = a clean 180 deg turn, partial frames
+// included, at no cost. Touch is flipped to match in touch.cpp (it reads g_set.screenFlip).
+void displaySetFlip(bool flip) {
+  if (!s_panel) return;
+  esp_lcd_panel_mirror(s_panel, flip, flip);
+  displayPush();
 }
 
 void displayBacklight(uint8_t level) { s_blTarget = level; }

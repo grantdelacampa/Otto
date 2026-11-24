@@ -70,6 +70,12 @@ struct Settings {
   float idleBeat = 0;        // ENGINE LEARN: the idle's beat strength (the V8's own rhythm)
   float idleBpm = 0;         // ENGINE LEARN: its tempo, if steady (0 = no steady rhythm)
   float cruiseNoiseDb = 0;   // learn the road: mic level (dBFS) cruising, quiet end
+  // --- added in SETTINGS_VERSION 7 (an int, not a bool: no tail padding for the next append) ---
+  int   screenFlip = 0;      // 1 = mounted upside down (roof): picture + touch turned 180 deg.
+                             // Set by calibration from gravity; menu FLIP SCREEN overrides.
+  // --- added in SETTINGS_VERSION 8 ---
+  int   engineFelt = 1;      // 0 = ENGINE LEARN couldn't tell idle from off (the Civic, Nov 23 2026):
+                             // engine off then also needs the cabin to go quiet (motion.cpp)
 };
 
 extern Settings g_set;

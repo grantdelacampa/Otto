@@ -8,6 +8,7 @@
 #include "trip.h"
 #include "audio.h"
 #include "music.h"
+#include "display.h"
 #include <math.h>
 
 MotionState g_motion;
@@ -341,6 +342,21 @@ void motionStartCalibration() {
   s_calN = 0;
 }
 
+// Upside down (roof mount)? Gravity's part in the screen plane (chip X/Y) says which way the top
+// of the screen points. Mounted nearly flat (screen facing the roof or the floor) it can't tell:
+// keep what's set (menu FLIP SCREEN is the override for that).
+static void screenFlipFromGravity() {
+  float ux = g_set.upX, uy = g_set.upY, uz = g_set.upZ;
+  float mag = sqrtf(ux * ux + uy * uy + uz * uz), inPlane = sqrtf(ux * ux + uy * uy);
+  if (mag < 0.5f || inPlane < 0.34f * mag) {   // tilted less than ~20 deg from flat
+    Serial.printf("calibrate: up %.2f %.2f %.2f, lying flat: screen flip stays %d\n", ux, uy, uz, g_set.screenFlip);
+    return;
+  }
+  int flip = (ux * SCREEN_UP_X + uy * SCREEN_UP_Y) < 0 ? 1 : 0;
+  Serial.printf("calibrate: up %.2f %.2f %.2f -> screen %s\n", ux, uy, uz, flip ? "upside down (flipped)" : "upright");
+  if (flip != g_set.screenFlip) { g_set.screenFlip = flip; displaySetFlip(flip); }
+}
+
 static void calibStep(uint32_t now, const float a[3], const float g[3]) {
   float mag = sqrtf(dot3(a, a));
   s_calSum[0] += a[0]; s_calSum[1] += a[1]; s_calSum[2] += a[2];
@@ -359,6 +375,7 @@ static void calibStep(uint32_t now, const float a[3], const float g[3]) {
     g_set.upX = s_calSum[0] / s_calN; g_set.upY = s_calSum[1] / s_calN; g_set.upZ = s_calSum[2] / s_calN;
     for (int i = 0; i < 3; i++) s_gBias[i] = s_calGyr[i] / s_calN;
     Serial.printf("calibrate: gyro offset %.2f %.2f %.2f deg/s\n", s_gBias[0], s_gBias[1], s_gBias[2]);
+    screenFlipFromGravity();
     g_set.calibrated = true;
     settingsSave();
     buildFrame();
@@ -392,7 +409,6 @@ enum class Learn : uint8_t { Off, Idle, WaitOff, EngOff, Road };
 static Learn s_learn = Learn::Off;
 static const char* s_learnTitle = "ENGINE LEARN";   // card title: ENGINE LEARN / LEARN THE ROAD
 static uint32_t s_learnAt = 0, s_lowSince = 0;
-static double s_lVib = 0, s_lRoad = 0, s_lGyro = 0;
 static uint32_t s_lN = 0;
 static float s_lIdleVib = 0, s_lIdleRoad = 0, s_lIdleGyro = 0;
 static volatile bool s_lTap = false;
@@ -403,6 +419,33 @@ static const float L_FLOOR_DEFAULT = 0.0006f;   // a parked board's own reading,
 static const uint32_t L_ROAD_MS = 20000;
 static const int ROAD_N = 220;
 static float s_rG[ROAD_N], s_rR[ROAD_N];
+// Engine not felt (ENGINE LEARN set engineFelt = 0): the idle reads like engine off, so at a stop
+// the cabin has to go quiet too: 12 dB under its level 2 s into the stop. Civic log, Nov 23 2026:
+// real engine-offs fell 17+ dB (-22 -> -45..-58 with the defroster on); a running engine at a light
+// fell 9 dB at most. Or long fully still (75 s at sleepMin 2): the mic isn't on (MUSIC BOB off), or
+// the car was already quiet when the stop began. Called every update (keeps the stop's reference).
+static float s_stopDb = 0;
+static bool s_stopRef = false;
+static const char* s_offWhy = "";
+static bool cabinQuiet() {
+  if (g_set.engineFelt) return true;
+  float lvl, beat, bpm;
+  musicSample(lvl, beat, bpm);
+  bool live = musicLive();
+  if (g_motion.quietSecs < 1.0f) s_stopRef = false;
+  else if (!s_stopRef && g_motion.quietSecs >= 2.0f && live) { s_stopDb = lvl; s_stopRef = true; }
+  if (live && s_stopRef && lvl < s_stopDb - 12.0f) { s_offWhy = "off: cabin went quiet"; return true; }
+  // Fallback: the summary comes 8 s (off) + 20 s (summary wait) later, and sleep at sleepMin still
+  // doesn't wait for it, so stay ~45 s under the sleep time (sleepMin 2 -> 75 s), at most 100 s.
+  float fallback = constrain(g_set.sleepMin * 60.0f - 45.0f, 30.0f, 100.0f);
+  if (g_motion.quietSecs > fallback) { s_offWhy = "off: long still"; return true; }
+  return false;
+}
+static float s_lV[ROAD_N];   // ENGINE LEARN: vibration samples (with s_rR / s_rG for road / wobble), ~10 Hz
+static float pctl(float* v, int n, float p) {   // sorts v in place
+  for (int i = 1; i < n; i++) { float t = v[i]; int j = i - 1; while (j >= 0 && v[j] > t) { v[j + 1] = v[j]; j--; } v[j + 1] = t; }
+  return v[constrain((int)(p * (n - 1) + 0.5f), 0, n - 1)];
+}
 static int s_rN = 0;
 static uint32_t s_rLast = 0;
 // Sound (for the music detector), sampled with the learns every 500 ms while the analysis runs:
@@ -597,6 +640,7 @@ void motionUpdate(uint32_t now) {
   if (audioBusy()) s_audioAt = now;
   bool selfNoise = s_audioAt && now - s_audioAt < 400;
   int obdEng = obdEngineState();                 // OBD knows for sure: no vibration guessing
+  bool cabinOff = cabinQuiet();
   if (obdEng >= 0) {
     if (obdEng) { s_engOnMs += ms * 5; s_engOffMs = 0; } else { s_engOffMs += ms * 3; s_engOnMs = 0; }
   }
@@ -605,17 +649,23 @@ void motionUpdate(uint32_t now) {
   // Off = vibration down near the sensor's own floor (a parked car reads ~0.001 g), not just under
   // the "on" level: a smooth V8 idling in Drive at a light sat below the old 0.6 x engineVib and
   // ended the drive at every stop. Also needs a quiet body for 8 s (not cruising).
-  else if (vib < (g_set.engOffVib > 0 ? g_set.engOffVib : g_set.engineVib * 0.3f) && g_motion.quietSecs > 1.0f) {
+  else if (vib < (g_set.engOffVib > 0 ? g_set.engOffVib : g_set.engineVib * 0.3f) && g_motion.quietSecs > 1.0f && cabinOff) {
     s_engOffMs += ms; s_engOnMs = 0;
   }
+  else if (!g_set.engineFelt) s_engOffMs = 0;   // not felt: the quiet cabin has to hold 8 s in a row
   if (!g_motion.engineOn && s_engOnMs > 1500) { g_motion.engineOn = true; g_motion.engineStarted = true; Serial.println("motion: engine on"); drivelogEvent("engine on"); }
-  if (g_motion.engineOn && s_engOffMs > 8000) { g_motion.engineOn = false; g_motion.engineStopped = true; Serial.println("motion: engine off"); drivelogEvent("engine off"); }
+  if (g_motion.engineOn && s_engOffMs > 8000) {
+    g_motion.engineOn = false; g_motion.engineStopped = true;
+    Serial.printf("motion: engine off%s%s\n", *s_offWhy ? " - " : "", s_offWhy);
+    drivelogEvent("engine off");
+    if (!g_set.engineFelt && *s_offWhy) drivelogEvent(s_offWhy);
+  }
 
   // ---- revs: really stopped with the engine running, vibration jumps well above idle ----
   // quietSecs: the body was still for 3 s before the jump (a rev's own torque roll comes after)
   bool parked = g_motion.engineOn && g_motion.stoppedSecs > 2.0f && (s_inRev || g_motion.quietSecs > 3.0f);
   if (parked && obdRpmFresh()) { /* obd.cpp does revs from the real rpm */ }
-  else if (parked) {
+  else if (parked && g_set.engineFelt) {          // not felt: no idle to see a rev against
     if (!s_inRev) {
       if (s_idleVib <= 0 && g_set.idleVib > 0) s_idleVib = g_set.idleVib;   // start from the learned idle
       s_idleVib += (vib - s_idleVib) * (1 - expf(-dt / 5.0f));            // follow today's idle
@@ -648,7 +698,7 @@ void motionEngineLearnTap() { s_lTap = true; }
 void motionStartEngineLearn() {
   if (!g_motion.ok || g_motion.calibrating) return;
   s_learnTitle = "ENGINE LEARN";
-  s_learn = Learn::Idle; s_learnAt = millis(); s_lVib = s_lRoad = s_lGyro = 0; s_lN = 0; s_lTap = false;
+  s_learn = Learn::Idle; s_learnAt = millis(); s_lN = 0; s_rLast = 0; s_lTap = false;
   soundReset(); s_sNote = "";
   Serial.println("engine learn: measuring idle (engine running, in P)");
   audioChirp(700, 1000, 120);
@@ -678,7 +728,29 @@ static void learnCard(const char* big, const char* sub, float ring) {
 static void learnDone(float floorV, bool measured) {
   s_learn = Learn::Off;
   char sub[40];
-  // Can't tell idle from off when they're this close: keep what he had.
+  // Idle and off this close, with the engine really turned off: the IMU can't feel this engine
+  // (the Civic in its mount: 0.10 mg either way, Nov 23 2026). Vibration still tells driving from
+  // stopped, so keep that, and let the cabin's sound decide engine off at a stop (cabinQuiet()).
+  if (measured && (s_lIdleVib < floorV * 2.5f || s_lIdleVib < 0.0008f)) {
+    float hi = fmaxf(s_lIdleVib, floorV);
+    g_set.engineFelt = 0;
+    g_set.idleVib = 0;                               // no idle to rev above: revs off (unless OBD)
+    g_set.engineVib = fmaxf(0.001f, hi * 6);         // driving reads 10+ mg: "on" stays easy
+    g_set.engOffVib = fminf(hi * 2.5f, g_set.engineVib * 0.8f);
+    g_set.idleGyro = s_lIdleGyro; g_set.idleRoad = s_lIdleRoad;
+    recomputeQuiet();
+    settingsSave();
+    Serial.printf("engine learn: idle %.4f g vs off %.4f g - can't feel the engine; stops listen instead "
+                  "(on > %.4f, off < %.4f + quiet cabin)\n", s_lIdleVib, floorV, g_set.engineVib, g_set.engOffVib);
+    char ev[64];
+    snprintf(ev, sizeof(ev), "learn idle %.4f off %.4f not felt", s_lIdleVib, floorV);
+    drivelogEvent(ev);
+    brainSetAnswer("ENGINE LEARN", "EAR", "CAN'T FEEL IT - STOPS LISTEN");
+    brainEventPrio(Expr::EngineLearn, 5000, 88);
+    audioChirp(900, 1200, 150);
+    return;
+  }
+  // Can't tell idle from off when they're this close (off step skipped): keep what he had.
   if (s_lIdleVib < floorV * 2.5f || s_lIdleVib < 0.0008f) {
     Serial.printf("engine learn: idle %.4f g vs off %.4f g - too close to tell apart, nothing saved\n", s_lIdleVib, floorV);
     snprintf(sub, sizeof(sub), "IDLE %.1f MG - OFF %.1f MG", s_lIdleVib * 1000, floorV * 1000);
@@ -689,6 +761,7 @@ static void learnDone(float floorV, bool measured) {
     return;
   }
   // geometric steps between the two levels: "on" halfway (in ratio) from off to idle, "off" lower still
+  g_set.engineFelt = 1;
   g_set.idleVib = s_lIdleVib;
   g_set.engineVib = sqrtf(floorV * s_lIdleVib);
   g_set.engOffVib = sqrtf(floorV * g_set.engineVib);
@@ -764,10 +837,17 @@ static void engineLearnStep(uint32_t now, float vib, bool selfNoise) {
   switch (s_learn) {
     case Learn::Idle:
       if (tap) { s_learn = Learn::Off; Serial.println("engine learn: cancelled"); brainEvent(Expr::Idle, 100); return; }
-      if (sample) { s_lVib += vib; s_lRoad += g_motion.road; s_lGyro += g_motion.gyroLP; s_lN++; soundSample(now); }
+      if (sample) {
+        soundSample(now);
+        if (now - s_rLast >= 90 && s_lN < (uint32_t)ROAD_N) {
+          s_rLast = now; s_lV[s_lN] = vib; s_rR[s_lN] = g_motion.road; s_rG[s_lN] = g_motion.gyroLP; s_lN++;
+        }
+      }
       learnCard("IDLE", "IN P, MUSIC OFF - TAP: STOP", fminf(1.0f, el / (float)L_IDLE_MS));
       if (el >= L_IDLE_MS && s_lN) {
-        s_lIdleVib = s_lVib / s_lN; s_lIdleRoad = s_lRoad / s_lN; s_lIdleGyro = s_lGyro / s_lN;
+        // Medians: averaged, one knock (the tap that started it, ~9 mg) made the Civic's silent idle
+        // look 18x engine off and the learn saved junk instead of refusing (drive log, Nov 23 2026).
+        s_lIdleVib = pctl(s_lV, s_lN, 0.5f); s_lIdleRoad = pctl(s_rR, s_lN, 0.5f); s_lIdleGyro = pctl(s_rG, s_lN, 0.5f);
         s_sNote = soundIdleDone();                 // saved with the rest in learnDone (settingsSave)
         Serial.printf("engine learn: idle vib %.4f g, road %.4f g, gyro %.2f dps; now turn the engine off\n",
                       s_lIdleVib, s_lIdleRoad, s_lIdleGyro);
@@ -781,15 +861,15 @@ static void engineLearnStep(uint32_t now, float vib, bool selfNoise) {
       if (vib < s_lIdleVib * 0.5f) { if (!s_lowSince) s_lowSince = now; }
       else s_lowSince = 0;
       if (s_lowSince && now - s_lowSince > 1500) {
-        s_learn = Learn::EngOff; s_learnAt = now; s_lVib = 0; s_lN = 0;
+        s_learn = Learn::EngOff; s_learnAt = now; s_lN = 0;
         Serial.println("engine learn: engine off, measuring the quiet");
       }
       break;
     case Learn::EngOff:
       if (tap) { learnDone(L_FLOOR_DEFAULT, false); return; }
-      if (sample) { s_lVib += vib; s_lN++; }
+      if (sample && now - s_rLast >= 90 && s_lN < (uint32_t)ROAD_N) { s_rLast = now; s_lV[s_lN++] = vib; }
       learnCard("QUIET", "MEASURING ENGINE OFF", fminf(1.0f, el / (float)L_OFF_MS));
-      if (el >= L_OFF_MS && s_lN) learnDone(fmaxf(0.0002f, (float)(s_lVib / s_lN)), true);
+      if (el >= L_OFF_MS && s_lN) learnDone(fmaxf(0.0002f, pctl(s_lV, s_lN, 0.5f)), true);
       break;
     case Learn::Road:
       if (tap) { s_learn = Learn::Off; Serial.println("road learn: cancelled"); brainEvent(Expr::Idle, 100); return; }

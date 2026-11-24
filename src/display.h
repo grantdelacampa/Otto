@@ -14,3 +14,5 @@ void displayPushRect(int x, int y, int w, int h);   // part of the canvas (edges
 void displayBacklight(uint8_t level);  // 0..255 target, eased
 void displayUpdateBacklight(float dt);
 void displayOff();                      // backlight off + panel off (before deep sleep)
+bool displayMirror(bool x, bool y);     // bench: panel MADCTL mirror bits (both = 180 deg)
+void displaySetFlip(bool flip);         // upside-down mount: turn the picture 180 deg (hardware, free)
